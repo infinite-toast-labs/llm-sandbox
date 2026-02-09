@@ -36,6 +36,13 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     exit 0
 fi
 
+# Release the startup lock BEFORE spawning any tmux commands.  If
+# tmux new-session starts (or restarts) the tmux server, the server
+# inherits fd 9 and holds the flock forever — even after exec 9>&-
+# runs later in the script.  Closing here is safe: the lock already
+# served its purpose (the session-exists check above passed).
+exec 9>&-
+
 # --- Window 1: codex-agent ---
 tmux new-session -d -s "$SESSION" -n "codex-agent" -c "$WORKDIR"
 tmux send-keys -t "$SESSION:codex-agent.0" "cd $WORKDIR" Enter
@@ -82,10 +89,6 @@ cat >"$WELCOME_BANNER_FILE" <<'WELCOME'
 
 WELCOME
 tmux send-keys -t "$SESSION:default-teams.0" "cat '$WELCOME_BANNER_FILE'" Enter
-
-# Release the startup lock so future invocations aren't blocked by the tmux
-# server inheriting fd 9.
-exec 9>&-
 
 # Focus on the default-teams window
 tmux select-window -t "$SESSION:default-teams"
