@@ -1,0 +1,14 @@
+#!/bin/bash
+# clip — tmux copy-pipe target that bridges to the system clipboard.
+#
+# tmux's .tmux.conf binds `y` and `Enter` in copy-mode-vi to:
+#   send-keys -X copy-pipe-and-cancel "~/clip"
+#
+# This pipes the selected text (via stdin) to this script, which POSTs it
+# to the clipboard HTTP server running on port 9123. The browser-side JS
+# poller picks it up and writes to the system clipboard via Clipboard API.
+#
+# The curl runs in the background (&) so tmux doesn't block waiting for it.
+
+buf=$(cat)
+curl -s -X POST --data-binary "$buf" http://127.0.0.1:9123/ > /dev/null 2>&1 &
