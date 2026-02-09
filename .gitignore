@@ -1,0 +1,4 @@
+*.tgz
+sbx-shared/
+.DS_Store
+
