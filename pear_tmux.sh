@@ -82,6 +82,10 @@ cat >"$WELCOME_BANNER_FILE" <<'WELCOME'
 WELCOME
 tmux send-keys -t "$SESSION:default.0" "cat '$WELCOME_BANNER_FILE'" Enter
 
+# Release the startup lock so future invocations aren't blocked by the tmux
+# server inheriting fd 9.
+exec 9>&-
+
 # Focus on the default window
 tmux select-window -t "$SESSION:default"
 
