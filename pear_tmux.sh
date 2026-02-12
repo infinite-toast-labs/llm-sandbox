@@ -6,27 +6,14 @@ WORKDIR="$HOME/workspaces/tmp"
 LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/flow2-${SESSION}.lock"
 WELCOME_BANNER_FILE="${XDG_RUNTIME_DIR:-/tmp}/flow2-${SESSION}-welcome.txt"
 
-# Keep flow1 behavior by default: auto-start all three CLIs.
-# Set FLOW2_AUTOSTART=0 to create layout only.
 AUTOSTART="${FLOW2_AUTOSTART:-1}"
-# Delay (seconds) between CLI launches to reduce startup CPU spikes.
 STARTUP_STAGGER_SECONDS="${FLOW2_STARTUP_STAGGER_SECONDS:-8}"
 
-# Prevent concurrent invocations (e.g., shell startup hooks or accidental double-run).
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-    echo "flow2: another invocation is already running; skipping"
-    exit 0
-fi
-
-# Do not run from inside tmux; this script is intended to be launched from
-# a normal shell so attach behavior is explicit and predictable.
 if [[ -n "${TMUX:-}" ]]; then
     echo "flow2: refusing to run from inside tmux"
     exit 1
 fi
 
-# If session already exists, attach to it
 if tmux has-session -t "$SESSION" 2>/dev/null; then
     if [[ -t 1 ]]; then
         tmux attach-session -t "$SESSION"
@@ -36,12 +23,18 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     exit 0
 fi
 
-# Release the startup lock BEFORE spawning any tmux commands.  If
-# tmux new-session starts (or restarts) the tmux server, the server
-# inherits fd 9 and holds the flock forever — even after exec 9>&-
-# runs later in the script.  Closing here is safe: the lock already
-# served its purpose (the session-exists check above passed).
-exec 9>&-
+# PID-based lock: only block if another process is actually running
+if [[ -f "$LOCK_FILE" ]]; then
+    LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null)
+    if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
+        echo "flow2: another invocation (PID $LOCK_PID) is already running; skipping"
+        exit 0
+    fi
+    # Stale lock file, remove it
+    rm -f "$LOCK_FILE"
+fi
+echo $$ > "$LOCK_FILE"
+trap 'rm -f "$LOCK_FILE"' EXIT
 
 # --- Window 1: claude ---
 tmux new-session -d -s "$SESSION" -n "claude" -c "$WORKDIR"
