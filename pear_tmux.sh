@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SESSION="pear"
-WORKDIR="$HOME/workspaces/tmp"
+WORKDIR="$(pwd)"
 LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/flow2-${SESSION}.lock"
 WELCOME_BANNER_FILE="${XDG_RUNTIME_DIR:-/tmp}/flow2-${SESSION}-welcome.txt"
 
@@ -39,14 +39,10 @@ trap 'rm -f "$LOCK_FILE"' EXIT
 # --- Window 1: claude ---
 tmux new-session -d -s "$SESSION" -n "claude" -c "$WORKDIR"
 tmux send-keys -t "$SESSION:claude.0" "cd $WORKDIR" Enter
-tmux split-window -d -t "$SESSION:claude" -v -l 25% -c "$WORKDIR"
-tmux select-pane -t "$SESSION:claude.0"
 
 # --- Window 2: codex ---
 tmux new-window -t "$SESSION" -n "codex" -c "$WORKDIR"
 tmux send-keys -t "$SESSION:codex.0" "cd $WORKDIR" Enter
-tmux split-window -d -t "$SESSION:codex" -v -l 25% -c "$WORKDIR"
-tmux select-pane -t "$SESSION:codex.0"
 
 # --- Window 3: default ---
 tmux new-window -t "$SESSION" -n "default" -c "$WORKDIR"
@@ -54,18 +50,22 @@ tmux new-window -t "$SESSION" -n "default" -c "$WORKDIR"
 # --- Window 4: gemini ---
 tmux new-window -t "$SESSION" -n "gemini" -c "$WORKDIR"
 tmux send-keys -t "$SESSION:gemini.0" "cd $WORKDIR" Enter
-tmux split-window -d -t "$SESSION:gemini" -v -l 25% -c "$WORKDIR"
-tmux select-pane -t "$SESSION:gemini.0"
+
+# --- Window 5: opencode ---
+tmux new-window -t "$SESSION" -n "opencode" -c "$WORKDIR"
+tmux send-keys -t "$SESSION:opencode.0" "cd $WORKDIR" Enter
 
 if [[ "$AUTOSTART" == "1" ]]; then
     # Run in the main panes (.0), staggered to avoid host CPU spikes at launch.
     tmux send-keys -t "$SESSION:claude.0" "cd $WORKDIR && cdsp" Enter
     tmux send-keys -t "$SESSION:codex.0" "cd $WORKDIR && codexdsp" Enter
     tmux send-keys -t "$SESSION:gemini.0" "cd $WORKDIR && gdsp" Enter
+    tmux send-keys -t "$SESSION:opencode.0" "cd $WORKDIR && opencode" Enter
 else
     tmux send-keys -t "$SESSION:claude.0" "echo 'Autostart disabled. Run: cdsp'" Enter
     tmux send-keys -t "$SESSION:codex.0" "echo 'Autostart disabled. Run: codexdsp'" Enter
     tmux send-keys -t "$SESSION:gemini.0" "echo 'Autostart disabled. Run: gdsp'" Enter
+    tmux send-keys -t "$SESSION:opencode.0" "echo 'Autostart disabled. Run: opencode'" Enter
 fi
 
 # Print ASCII welcome when creating a new pear session.
