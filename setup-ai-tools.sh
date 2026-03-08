@@ -10,6 +10,11 @@ fi
 
 echo "[setup-ai-tools] Installing AI CLI tools (first-run setup)..."
 
+# Ensure npm globals for gem live under home (shared between code-server + SSH sessions).
+su - gem -c 'mkdir -p "$HOME/.npm-global/bin" "$HOME/.npm-global/lib" && npm config set prefix "$HOME/.npm-global"' || {
+    echo "[setup-ai-tools] WARNING: npm prefix setup failed"
+}
+
 # Install Claude Code
 echo "[setup-ai-tools] Installing Claude Code..."
 su - gem -c 'curl -fsSL https://claude.ai/install.sh | bash' || {
@@ -18,13 +23,13 @@ su - gem -c 'curl -fsSL https://claude.ai/install.sh | bash' || {
 
 # Install OpenAI Codex
 echo "[setup-ai-tools] Installing OpenAI Codex..."
-su - gem -c 'npm i -g @openai/codex' || {
+su - gem -c 'export NPM_CONFIG_PREFIX="$HOME/.npm-global"; export PATH="$NPM_CONFIG_PREFIX/bin:$HOME/.local/bin:$PATH"; npm i -g @openai/codex' || {
     echo "[setup-ai-tools] WARNING: OpenAI Codex installation failed"
 }
 
 # Install Google Gemini CLI
 echo "[setup-ai-tools] Installing Google Gemini CLI..."
-su - gem -c 'npm install -g @google/gemini-cli' || {
+su - gem -c 'export NPM_CONFIG_PREFIX="$HOME/.npm-global"; export PATH="$NPM_CONFIG_PREFIX/bin:$HOME/.local/bin:$PATH"; npm install -g @google/gemini-cli' || {
     echo "[setup-ai-tools] WARNING: Google Gemini CLI installation failed"
 }
 
