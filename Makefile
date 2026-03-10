@@ -16,6 +16,7 @@ TAILSCALE_SCRIPT   := scripts/setup-tailscale.sh
 TAILSCALE_SOCKET   := /var/run/tailscale/tailscaled.sock
 TAILSCALE_UP_TIMEOUT ?= 20s
 SSH_KEY_FILE       ?= $(HOME)/.ssh/id_ed25519.pub
+ANDROID_TAILSCALE_HOSTNAME ?= $(ANDROID_CONTAINER)
 ANDROID_IMAGE_NAME ?= llm-sandbox-android
 ANDROID_CONTAINER  ?= llm-sandbox-android
 ANDROID_VOLUME     ?= llm-sandbox-android-home
@@ -36,7 +37,7 @@ ANDROID_HOST_ADB_SERVER_PORT ?= 5037
 -include .env
 export
 
-.PHONY: up start stop destroy clean backup status shell build logs help setup-tailscale tailscale-status \
+.PHONY: up start stop destroy clean backup status shell build logs help setup-tailscale tailscale-status setup-tailscale-android \
 	android-build android-up android-start android-stop android-clean android-destroy android-backup \
 	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start \
 	android-emulator-stop android-connect
@@ -243,6 +244,11 @@ tailscale-status: ## Show Tailscale + SSH status inside the container
 		echo "Container '$(CONTAINER)' is not running. Run 'make up' first."; \
 		exit 1; \
 	fi
+
+setup-tailscale-android: ## Install/configure Tailscale + SSH in the optional Android-enabled container
+	@$(MAKE) --no-print-directory setup-tailscale \
+		CONTAINER=$(ANDROID_CONTAINER) \
+		TAILSCALE_HOSTNAME=$(ANDROID_TAILSCALE_HOSTNAME)
 
 shell: ## Open a shell in the running container
 	@if docker container inspect -f '{{.State.Running}}' $(CONTAINER) 2>/dev/null | grep -q true; then \
