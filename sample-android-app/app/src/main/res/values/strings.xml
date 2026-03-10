@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sandbox Android E2E</string>
+    <string name="title_text">Sandbox Android E2E</string>
+    <string name="status_ready">Status: Ready for in-container install</string>
+    <string name="status_tapped">Status: Button tapped from adb</string>
+    <string name="button_text">Tap me</string>
+</resources>

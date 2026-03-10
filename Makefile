@@ -1,31 +1,54 @@
 # LLM Sandbox — Persistent Docker Development Environment
 
-IMAGE_NAME     := llm-sandbox
-CONTAINER      := llm-sandbox
-VOLUME         := llm-sandbox-home
-HOST_PORT      := 8080
+IMAGE_NAME     ?= llm-sandbox
+CONTAINER      ?= llm-sandbox
+VOLUME         ?= llm-sandbox-home
+HOST_PORT      ?= 8080
 CONTAINER_PORT := 8080
 SHARED_DIR     := $(CURDIR)/sbx-shared
 SHELL_USER     := gem
+SHELL_HINT     ?= make shell
+STREAMLIT_HOST_PORT ?= 8501
+DOCKER_BUILD_ARGS ?=
+DOCKER_RUN_ARGS ?=
 TAILSCALE_HOSTNAME ?= llm-sandbox
 TAILSCALE_SCRIPT   := scripts/setup-tailscale.sh
 TAILSCALE_SOCKET   := /var/run/tailscale/tailscaled.sock
 TAILSCALE_UP_TIMEOUT ?= 20s
 SSH_KEY_FILE       ?= $(HOME)/.ssh/id_ed25519.pub
+ANDROID_IMAGE_NAME ?= llm-sandbox-android
+ANDROID_CONTAINER  ?= llm-sandbox-android
+ANDROID_VOLUME     ?= llm-sandbox-android-home
+ANDROID_HOST_PORT  ?= 8081
+ANDROID_STREAMLIT_HOST_PORT ?= 8502
+ANDROID_HOST_CHECK        := scripts/android-host-check.sh
+ANDROID_CREATE_AVD        := scripts/android-create-avd.sh
+ANDROID_START_EMULATOR    := scripts/android-start-emulator.sh
+ANDROID_STOP_EMULATOR     := scripts/android-stop-emulator.sh
+ANDROID_CONNECT_CONTAINER := scripts/android-container-connect.sh
+ANDROID_AVD_NAME          ?= llm_sandbox_pixel_9_pro_api_36_1
+ANDROID_DEVICE_ID         ?= pixel_9_pro
+ANDROID_SYSTEM_IMAGE      ?= system-images;android-36.1;google_apis_playstore;arm64-v8a
+ANDROID_EMULATOR_PORT     ?= 5560
+ANDROID_EMULATOR_TCP_PORT ?= 5561
+ANDROID_HOST_ADB_SERVER_PORT ?= 5037
 
 -include .env
 export
 
-.PHONY: up start stop destroy clean backup status shell build logs help setup-tailscale tailscale-status
+.PHONY: up start stop destroy clean backup status shell build logs help setup-tailscale tailscale-status \
+	android-build android-up android-start android-stop android-clean android-destroy android-backup \
+	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start \
+	android-emulator-stop android-connect
 
 help: ## Show available targets
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
 
 # -- Build ---------------------------------------------------------------------
 
 build: Dockerfile setup-ai-tools.sh ## Build the Docker image
-	docker build -t $(IMAGE_NAME) .
+	docker build $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME) .
 
 # -- Lifecycle -----------------------------------------------------------------
 
@@ -43,11 +66,11 @@ up: build ## Create/start the container and run first-time setup
 		mkdir -p $(SHARED_DIR); \
 		docker volume create $(VOLUME) >/dev/null 2>&1 || true; \
 		echo "Attempting to start with /dev/net/tun enabled..."; \
-		if docker run -d \
+		if docker run -d $(DOCKER_RUN_ARGS) \
 			--name $(CONTAINER) \
 			--hostname $(CONTAINER) \
 			-p $(HOST_PORT):$(CONTAINER_PORT) \
-			-p 8501:8501 \
+			-p $(STREAMLIT_HOST_PORT):8501 \
 			--cap-add NET_ADMIN \
 			--security-opt seccomp=unconfined \
 			--device /dev/net/tun \
@@ -57,11 +80,11 @@ up: build ## Create/start the container and run first-time setup
 			echo "/dev/net/tun enabled."; \
 		else \
 			echo "Warning: could not attach /dev/net/tun; falling back to userspace mode."; \
-			docker run -d \
+			docker run -d $(DOCKER_RUN_ARGS) \
 				--name $(CONTAINER) \
 				--hostname $(CONTAINER) \
 				-p $(HOST_PORT):$(CONTAINER_PORT) \
-				-p 8501:8501 \
+				-p $(STREAMLIT_HOST_PORT):8501 \
 				--cap-add NET_ADMIN \
 				--security-opt seccomp=unconfined \
 				-v $(VOLUME):/home/gem \
@@ -75,7 +98,7 @@ up: build ## Create/start the container and run first-time setup
 	fi
 	@echo ""
 	@echo "Dashboard: http://localhost:$(HOST_PORT)"
-	@echo "Shell:     make shell"
+	@echo "Shell:     $(SHELL_HINT)"
 
 start: up ## Alias for 'up'
 
@@ -235,7 +258,7 @@ status: ## Show container and volume status
 		docker container inspect -f \
 			'Name:    {{.Name}}\nState:   {{.State.Status}}\nStarted: {{.State.StartedAt}}\nImage:   {{.Config.Image}}' \
 			$(CONTAINER); \
-		echo "Ports:   $(HOST_PORT)->$(CONTAINER_PORT)"; \
+		echo "Ports:   $(HOST_PORT)->$(CONTAINER_PORT), $(STREAMLIT_HOST_PORT)->8501"; \
 	else \
 		echo "Container '$(CONTAINER)' does not exist."; \
 	fi
@@ -251,3 +274,110 @@ status: ## Show container and volume status
 
 logs: ## Tail container logs
 	@docker logs -f $(CONTAINER) 2>/dev/null || echo "Container '$(CONTAINER)' not found."
+
+# -- Optional Android Sandbox --------------------------------------------------
+
+android-build: ## Build the optional Android-enabled sandbox image
+	@$(MAKE) --no-print-directory build \
+		IMAGE_NAME=$(ANDROID_IMAGE_NAME) \
+		DOCKER_BUILD_ARGS='--platform=linux/amd64 --build-arg ENABLE_ANDROID=1'
+
+android-prereqs: $(ANDROID_HOST_CHECK) ## Check optional host prerequisites for Android support
+	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
+	ANDROID_DEVICE_ID='$(ANDROID_DEVICE_ID)' \
+	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
+	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	'./$(ANDROID_HOST_CHECK)'
+
+android-avd-create: android-prereqs $(ANDROID_CREATE_AVD) ## Create the deterministic optional host Pixel 9 Pro AVD
+	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
+	ANDROID_DEVICE_ID='$(ANDROID_DEVICE_ID)' \
+	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
+	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	'./$(ANDROID_CREATE_AVD)'
+
+android-emulator-start: android-avd-create $(ANDROID_START_EMULATOR) ## Start the optional host Android emulator and expose ADB/TCP
+	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
+	ANDROID_DEVICE_ID='$(ANDROID_DEVICE_ID)' \
+	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
+	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	'./$(ANDROID_START_EMULATOR)'
+
+android-emulator-stop: $(ANDROID_STOP_EMULATOR) ## Stop the optional host Android emulator managed by this sandbox
+	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
+	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	'./$(ANDROID_STOP_EMULATOR)'
+
+android-connect: android-emulator-start $(ANDROID_CONNECT_CONTAINER) ## Connect the optional Android sandbox container to the host emulator
+	@$(MAKE) --no-print-directory up \
+		IMAGE_NAME=$(ANDROID_IMAGE_NAME) \
+		CONTAINER=$(ANDROID_CONTAINER) \
+		VOLUME=$(ANDROID_VOLUME) \
+		HOST_PORT=$(ANDROID_HOST_PORT) \
+		STREAMLIT_HOST_PORT=$(ANDROID_STREAMLIT_HOST_PORT) \
+		SHELL_HINT='make android-shell' \
+		DOCKER_BUILD_ARGS='--platform=linux/amd64 --build-arg ENABLE_ANDROID=1' \
+		DOCKER_RUN_ARGS='--platform=linux/amd64'
+	@ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	'./$(ANDROID_CONNECT_CONTAINER)' '$(ANDROID_CONTAINER)'
+
+android-up: android-connect ## Build and start the optional Android-enabled sandbox, host AVD, and ADB bridge
+
+android-start: android-up ## Alias for 'android-up'
+
+android-stop: ## Stop the optional Android-enabled sandbox container
+	@$(MAKE) --no-print-directory stop CONTAINER=$(ANDROID_CONTAINER)
+
+android-clean: ## Stop and remove the optional Android-enabled container (volume preserved)
+	@$(MAKE) --no-print-directory clean CONTAINER=$(ANDROID_CONTAINER) VOLUME=$(ANDROID_VOLUME)
+
+android-destroy: ## Remove the optional Android-enabled container and volume (full reset)
+	@$(MAKE) --no-print-directory destroy CONTAINER=$(ANDROID_CONTAINER) VOLUME=$(ANDROID_VOLUME)
+
+android-backup: ## Backup the optional Android-enabled home volume to a timestamped archive
+	@$(MAKE) --no-print-directory backup IMAGE_NAME=$(ANDROID_IMAGE_NAME) VOLUME=$(ANDROID_VOLUME)
+
+android-shell: ## Open a shell in the optional Android-enabled container
+	@$(MAKE) --no-print-directory shell CONTAINER=$(ANDROID_CONTAINER)
+
+android-status: ## Show optional Android sandbox status and current ADB connectivity
+	@$(MAKE) --no-print-directory status \
+		CONTAINER=$(ANDROID_CONTAINER) \
+		VOLUME=$(ANDROID_VOLUME) \
+		HOST_PORT=$(ANDROID_HOST_PORT) \
+		STREAMLIT_HOST_PORT=$(ANDROID_STREAMLIT_HOST_PORT)
+	@echo ""
+	@echo "=== Host Android ==="
+	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
+	ANDROID_DEVICE_ID='$(ANDROID_DEVICE_ID)' \
+	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
+	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	'./$(ANDROID_HOST_CHECK)' --quiet || true
+	@ADB_BIN="$$(ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' ./$(ANDROID_HOST_CHECK) --print-adb 2>/dev/null || true)"; \
+	if [ -n "$$ADB_BIN" ]; then \
+		"$$ADB_BIN" devices; \
+	else \
+		echo "Host Android tools not fully available."; \
+	fi
+	@echo ""
+	@echo "=== Container ADB ==="
+	@if docker container inspect -f '{{.State.Running}}' $(ANDROID_CONTAINER) 2>/dev/null | grep -q true; then \
+		docker exec -u gem $(ANDROID_CONTAINER) bash -lc 'if command -v android-adb >/dev/null 2>&1; then android-adb devices -l; else adb -H host.docker.internal -P $(ANDROID_HOST_ADB_SERVER_PORT) devices -l; fi'; \
+	else \
+		echo "Container '$(ANDROID_CONTAINER)' is not running. Run 'make android-up' first."; \
+	fi
+
+android-logs: ## Tail logs for the optional Android-enabled container
+	@$(MAKE) --no-print-directory logs CONTAINER=$(ANDROID_CONTAINER)

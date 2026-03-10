@@ -2,3 +2,7 @@
 sbx-shared/
 .DS_Store
 .env
+tmp/
+**/.gradle/
+**/local.properties
+**/build/
