@@ -10,6 +10,18 @@ android_resolve_host_sdk_root
 android_require_host_tools adb emulator avdmanager sdkmanager
 android_restart_host_adb_server_for_container
 
+window_mode="${ANDROID_EMULATOR_WINDOW_MODE:-headless}"
+case "$window_mode" in
+  headless)
+    ;;
+  windowed)
+    ;;
+  *)
+    echo "Error: ANDROID_EMULATOR_WINDOW_MODE must be 'headless' or 'windowed'." >&2
+    exit 1
+    ;;
+esac
+
 serial="$(android_resolve_running_avd_serial || true)"
 desired_serial="emulator-$ANDROID_EMULATOR_PORT"
 stale_pid="$(android_resolve_avd_pid || true)"
@@ -32,13 +44,13 @@ if [ -z "$serial" ]; then
 
   "$SCRIPT_DIR/android-create-avd.sh"
 
-  echo "Starting emulator '$ANDROID_AVD_NAME' on $desired_serial..."
+  echo "Starting emulator '$ANDROID_AVD_NAME' on $desired_serial in $window_mode mode..."
   python3 - "$ANDROID_HOST_EMULATOR" "$log_file" \
-    "$ANDROID_AVD_NAME" "$ANDROID_EMULATOR_PORT" <<'PY'
+    "$ANDROID_AVD_NAME" "$ANDROID_EMULATOR_PORT" "$window_mode" <<'PY'
 import subprocess
 import sys
 
-emulator, log_file, avd_name, port = sys.argv[1:5]
+emulator, log_file, avd_name, port, window_mode = sys.argv[1:6]
 
 args = [
     emulator,
@@ -47,12 +59,13 @@ args = [
     "-gpu", "host",
     "-skip-adb-auth",
     "-no-boot-anim",
-    "-no-window",
     "-no-snapshot-load",
     "-no-snapshot-save",
     "-netdelay", "none",
     "-netspeed", "full",
 ]
+if window_mode == "headless":
+    args.append("-no-window")
 
 with open(log_file, "ab", buffering=0) as log:
     proc = subprocess.Popen(

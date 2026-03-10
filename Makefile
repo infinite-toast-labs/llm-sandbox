@@ -33,6 +33,7 @@ ANDROID_SYSTEM_IMAGE      ?= system-images;android-36.1;google_apis_playstore;ar
 ANDROID_EMULATOR_PORT     ?= 5560
 ANDROID_EMULATOR_TCP_PORT ?= 5561
 ANDROID_HOST_ADB_SERVER_PORT ?= 5037
+ANDROID_EMULATOR_WINDOW_MODE ?= headless
 
 -include .env
 export
@@ -40,7 +41,8 @@ export
 .PHONY: up start stop destroy clean backup status shell build logs help setup-tailscale tailscale-status setup-tailscale-android \
 	android-build android-up android-start android-stop android-clean android-destroy android-backup \
 	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start \
-	android-emulator-stop android-connect
+	android-emulator-start-visible android-emulator-stop android-connect android-connect-visible \
+	android-up-visible
 
 help: ## Show available targets
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -313,7 +315,12 @@ android-emulator-start: android-avd-create $(ANDROID_START_EMULATOR) ## Start th
 	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
 	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
 	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	ANDROID_EMULATOR_WINDOW_MODE='$(ANDROID_EMULATOR_WINDOW_MODE)' \
 	'./$(ANDROID_START_EMULATOR)'
+
+android-emulator-start-visible: ## Start the optional host Android emulator with a visible window
+	@$(MAKE) --no-print-directory android-emulator-start \
+		ANDROID_EMULATOR_WINDOW_MODE=windowed
 
 android-emulator-stop: $(ANDROID_STOP_EMULATOR) ## Stop the optional host Android emulator managed by this sandbox
 	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
@@ -337,7 +344,15 @@ android-connect: android-emulator-start $(ANDROID_CONNECT_CONTAINER) ## Connect 
 	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
 	'./$(ANDROID_CONNECT_CONTAINER)' '$(ANDROID_CONTAINER)'
 
+android-connect-visible: ## Connect the optional Android sandbox container using a visible host emulator window
+	@$(MAKE) --no-print-directory android-connect \
+		ANDROID_EMULATOR_WINDOW_MODE=windowed
+
 android-up: android-connect ## Build and start the optional Android-enabled sandbox, host AVD, and ADB bridge
+
+android-up-visible: ## Build and start the optional Android-enabled sandbox with a visible host emulator window
+	@$(MAKE) --no-print-directory android-up \
+		ANDROID_EMULATOR_WINDOW_MODE=windowed
 
 android-start: android-up ## Alias for 'android-up'
 
