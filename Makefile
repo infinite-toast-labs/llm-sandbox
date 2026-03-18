@@ -23,6 +23,7 @@ ANDROID_VOLUME     ?= llm-sandbox-android-home
 ANDROID_HOST_PORT  ?= 8081
 ANDROID_STREAMLIT_HOST_PORT ?= 8502
 ANDROID_HOST_CHECK        := scripts/android-host-check.sh
+ANDROID_DOCKER_ROSETTA   := scripts/android-docker-rosetta.sh
 ANDROID_CREATE_AVD        := scripts/android-create-avd.sh
 ANDROID_START_EMULATOR    := scripts/android-start-emulator.sh
 ANDROID_STOP_EMULATOR     := scripts/android-stop-emulator.sh
@@ -42,6 +43,7 @@ export
 	android-build android-up android-start android-stop android-clean android-destroy android-backup \
 	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start \
 	android-emulator-start-visible android-emulator-stop android-connect android-connect-visible \
+	android-docker-rosetta \
 	android-up-visible
 
 help: ## Show available targets
@@ -289,6 +291,9 @@ android-build: ## Build the optional Android-enabled sandbox image
 	@$(MAKE) --no-print-directory build \
 		IMAGE_NAME=$(ANDROID_IMAGE_NAME) \
 		DOCKER_BUILD_ARGS='--platform=linux/amd64 --build-arg ENABLE_ANDROID=1'
+
+android-docker-rosetta: $(ANDROID_DOCKER_ROSETTA) ## Restart Docker Desktop with Apple Virtualization Framework + Rosetta enabled
+	@'./$(ANDROID_DOCKER_ROSETTA)'
 
 android-prereqs: $(ANDROID_HOST_CHECK) ## Check optional host prerequisites for Android support
 	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \

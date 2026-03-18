@@ -53,6 +53,7 @@ Fix:
   - Use Rosetta for x86_64/amd64 emulation on Apple Silicon
 
 After enabling both settings, restart Docker Desktop and rerun:
+  make android-docker-rosetta
   make android-prereqs
 EOF
       exit 1

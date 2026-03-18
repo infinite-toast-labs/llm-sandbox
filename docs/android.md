@@ -19,6 +19,7 @@ installed on the host:
 Run the rough prerequisite check before anything else:
 
 ```bash
+make android-docker-rosetta
 make android-prereqs
 ```
 
@@ -46,6 +47,9 @@ container requires Docker Desktop to use the Apple Virtualization Framework
 plus Rosetta for `x86_64/amd64` emulation. If Rosetta is disabled, the Android
 container may still run, but interactive `codex` can fail at startup with
 `Function not implemented (os error 38)`.
+
+Use `make android-docker-rosetta` to update Docker Desktop's settings, restart
+Docker Desktop if needed, and wait until the daemon is ready again.
 
 ## Main workflow
 
