@@ -32,17 +32,29 @@ fi
 
 docker exec -u root "$container_name" bash -lc "
   install -d -m 755 /usr/local/bin
-  cat > /usr/local/bin/android-adb <<'EOF'
+  install -d -m 755 /home/gem/.local/bin
+  android_sdk_root=\${ANDROID_SDK_ROOT:-/opt/android-sdk}
+  adb_bin=\$(command -v adb || true)
+  if [ -z \"\$adb_bin\" ] && [ -x \"\$android_sdk_root/platform-tools/adb\" ]; then
+    adb_bin=\"\$android_sdk_root/platform-tools/adb\"
+  fi
+  if [ -z \"\$adb_bin\" ]; then
+    echo 'Error: adb is not installed in the container image.' >&2
+    exit 1
+  fi
+  cat > /usr/local/bin/android-adb <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-exec adb -H '$adb_host' -P '$adb_port' \"\$@\"
+exec \"\$adb_bin\" -H '$adb_host' -P '$adb_port' \"\\\$@\"
 EOF
-  cat > /usr/local/bin/android-emulator-adb <<'EOF'
+  cat > /usr/local/bin/android-emulator-adb <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-exec adb -H '$adb_host' -P '$adb_port' -s '$emulator_serial' \"\$@\"
+exec \"\$adb_bin\" -H '$adb_host' -P '$adb_port' -s '$emulator_serial' \"\\\$@\"
 EOF
   chmod 755 /usr/local/bin/android-adb /usr/local/bin/android-emulator-adb
+  ln -sf /usr/local/bin/android-adb /home/gem/.local/bin/android-adb
+  ln -sf /usr/local/bin/android-emulator-adb /home/gem/.local/bin/android-emulator-adb
 "
 
 for _ in $(seq 1 30); do

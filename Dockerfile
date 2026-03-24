@@ -32,10 +32,14 @@ RUN if [ "$ENABLE_ANDROID" = "1" ]; then \
       mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools/latest"; \
       mv /tmp/android-sdk-tools/cmdline-tools/* "${ANDROID_SDK_ROOT}/cmdline-tools/latest/"; \
       yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses >/dev/null; \
-      sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
-        "build-tools;${ANDROID_BUILD_TOOLS}" \
-        "platform-tools" \
-        "platforms;${ANDROID_PLATFORM}"; \
+      yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools"; \
+      yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "build-tools;${ANDROID_BUILD_TOOLS}"; \
+      yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "platforms;${ANDROID_PLATFORM}"; \
+      test -x "${ANDROID_SDK_ROOT}/platform-tools/adb"; \
+      test -d "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS}"; \
+      ln -sf "${ANDROID_SDK_ROOT}/platform-tools/adb" /usr/local/bin/adb; \
+      ln -sf "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" /usr/local/bin/sdkmanager; \
+      ln -sf "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/avdmanager" /usr/local/bin/avdmanager; \
       rm -rf /tmp/android-cmdline-tools.zip /tmp/android-sdk-tools; \
     fi
 
