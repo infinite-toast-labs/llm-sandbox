@@ -13,8 +13,12 @@ DOCKER_BUILD_ARGS ?=
 DOCKER_RUN_ARGS ?=
 TAILSCALE_HOSTNAME ?= llm-sandbox
 TAILSCALE_SCRIPT   := scripts/setup-tailscale.sh
+TAILSCALE_HTTPS_SCRIPT := scripts/setup-tailscale-https.sh
 TAILSCALE_SOCKET   := /var/run/tailscale/tailscaled.sock
 TAILSCALE_UP_TIMEOUT ?= 20s
+TAILSCALE_GODEBUG ?=
+TAILSCALE_HTTPS_PORT ?= 443
+TAILSCALE_CERT_EXPORT_DIR ?= $(CURDIR)/tailscale-certs
 SSH_KEY_FILE       ?= $(HOME)/.ssh/id_ed25519.pub
 ANDROID_TAILSCALE_HOSTNAME ?= $(ANDROID_CONTAINER)
 ANDROID_IMAGE_NAME ?= llm-sandbox-android
@@ -28,6 +32,9 @@ ANDROID_CREATE_AVD        := scripts/android-create-avd.sh
 ANDROID_START_EMULATOR    := scripts/android-start-emulator.sh
 ANDROID_STOP_EMULATOR     := scripts/android-stop-emulator.sh
 ANDROID_CONNECT_CONTAINER := scripts/android-container-connect.sh
+TAILSCALE_BROWSER_TUNNEL := scripts/tailscale-browser-tunnel.sh
+TAILSCALE_BROWSER_LOCAL_PORT ?= 18080
+ANDROID_TAILSCALE_BROWSER_LOCAL_PORT ?= 18081
 ANDROID_AVD_NAME          ?= llm_sandbox_pixel_9_pro_api_36_1
 ANDROID_DEVICE_ID         ?= pixel_9_pro
 ANDROID_SYSTEM_IMAGE      ?= system-images;android-36.1;google_apis_playstore;arm64-v8a
@@ -39,7 +46,9 @@ ANDROID_EMULATOR_WINDOW_MODE ?= headless
 -include .env
 export
 
-.PHONY: up start stop destroy clean backup status shell build logs help setup-tailscale tailscale-status setup-tailscale-android \
+.PHONY: up start stop destroy clean backup status shell build logs help setup-tailscale setup-tailscale-https tailscale-status setup-tailscale-android \
+	setup-tailscale-https-android \
+	tailscale-browser tailscale-browser-android \
 	android-build android-up android-start android-stop android-clean android-destroy android-backup \
 	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start \
 	android-emulator-start-visible android-emulator-stop android-connect android-connect-visible \
@@ -176,7 +185,7 @@ backup: ## Backup the home volume to a timestamped archive in repo root
 
 # -- Interaction ---------------------------------------------------------------
 
-setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in container
+setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in container and provision direct HTTPS access
 	@set -euo pipefail; \
 	if ! docker container inspect $(CONTAINER) >/dev/null 2>&1; then \
 		echo "Container '$(CONTAINER)' does not exist. Run 'make up' first."; \
@@ -211,6 +220,7 @@ setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in con
 		-e TAILSCALE_EXTRA_ARGS="$(TAILSCALE_EXTRA_ARGS)" \
 		-e TAILSCALE_SOCKET="$(TAILSCALE_SOCKET)" \
 		-e TAILSCALE_UP_TIMEOUT="$(TAILSCALE_UP_TIMEOUT)" \
+		-e TAILSCALE_GODEBUG="$(TAILSCALE_GODEBUG)" \
 		-e SSH_PUBLIC_KEY="$$SSH_KEY_VALUE" \
 		$(CONTAINER) bash /tmp/setup-tailscale.sh || SETUP_RC=$$?; \
 	docker exec -u root $(CONTAINER) rm -f /tmp/setup-tailscale.sh >/dev/null 2>&1 || true; \
@@ -231,7 +241,42 @@ setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in con
 	fi; \
 	if [ "$$SETUP_RC" -ne 0 ]; then \
 		exit "$$SETUP_RC"; \
-	fi
+	fi; \
+	$(MAKE) --no-print-directory setup-tailscale-https \
+		CONTAINER=$(CONTAINER) \
+		TAILSCALE_HOSTNAME=$(TAILSCALE_HOSTNAME)
+
+setup-tailscale-https: $(TAILSCALE_HTTPS_SCRIPT) ## Provision HTTPS on the container's Tailscale interface and export the local CA cert
+	@set -euo pipefail; \
+	if ! docker container inspect -f '{{.State.Running}}' $(CONTAINER) 2>/dev/null | grep -q true; then \
+		echo "Container '$(CONTAINER)' is not running. Run 'make up' first."; \
+		exit 1; \
+	fi; \
+	docker cp $(TAILSCALE_HTTPS_SCRIPT) $(CONTAINER):/tmp/setup-tailscale-https.sh; \
+	HTTPS_RC=0; \
+	docker exec -u root \
+		-e SHELL_USER="$(SHELL_USER)" \
+		-e TAILSCALE_SOCKET="$(TAILSCALE_SOCKET)" \
+		-e TAILSCALE_HTTPS_PORT="$(TAILSCALE_HTTPS_PORT)" \
+		$(CONTAINER) bash /tmp/setup-tailscale-https.sh || HTTPS_RC=$$?; \
+	docker exec -u root $(CONTAINER) rm -f /tmp/setup-tailscale-https.sh >/dev/null 2>&1 || true; \
+	if [ "$$HTTPS_RC" -ne 0 ]; then \
+		exit "$$HTTPS_RC"; \
+	fi; \
+	mkdir -p "$(TAILSCALE_CERT_EXPORT_DIR)"; \
+	docker cp $(CONTAINER):/home/$(SHELL_USER)/.tailscale/https/ca.crt "$(TAILSCALE_CERT_EXPORT_DIR)/$(CONTAINER)-root-ca.crt" >/dev/null; \
+	HTTPS_URL="$$(docker exec $(CONTAINER) sh -lc 'cat /home/$(SHELL_USER)/.tailscale/https/url.txt 2>/dev/null || true')"; \
+	HTTPS_IP_URL="$$(docker exec $(CONTAINER) sh -lc 'cat /home/$(SHELL_USER)/.tailscale/https/ip-url.txt 2>/dev/null || true')"; \
+	echo ""; \
+	echo "Browser-safe direct access:"; \
+	if [ -n "$$HTTPS_URL" ]; then \
+		echo "  $$HTTPS_URL"; \
+	fi; \
+	if [ -n "$$HTTPS_IP_URL" ]; then \
+		echo "  $$HTTPS_IP_URL"; \
+	fi; \
+	echo "Trust this CA on each client device first:"; \
+	echo "  $(TAILSCALE_CERT_EXPORT_DIR)/$(CONTAINER)-root-ca.crt"
 
 tailscale-status: ## Show Tailscale + SSH status inside the container
 	@if docker container inspect -f '{{.State.Running}}' $(CONTAINER) 2>/dev/null | grep -q true; then \
@@ -249,8 +294,34 @@ tailscale-status: ## Show Tailscale + SSH status inside the container
 		exit 1; \
 	fi
 
-setup-tailscale-android: ## Install/configure Tailscale + SSH in the optional Android-enabled container
+tailscale-browser: $(TAILSCALE_BROWSER_TUNNEL) ## Open a browser-safe localhost tunnel to the default sandbox over Tailscale SSH
+	@TS_IP="$$(docker exec $(CONTAINER) sh -lc 'tailscale ip -4 2>/dev/null | head -1' || true)"; \
+	if [ -z "$$TS_IP" ]; then \
+		echo "Could not determine the container's Tailscale IP. Run 'make setup-tailscale' first."; \
+		exit 1; \
+	fi; \
+	echo "Raw http://$$TS_IP:8080 is not a secure browser context."; \
+	echo "Forwarding localhost:$(TAILSCALE_BROWSER_LOCAL_PORT) -> $$TS_IP:8080 over SSH."; \
+	'./$(TAILSCALE_BROWSER_TUNNEL)' "$$TS_IP" "$(TAILSCALE_BROWSER_LOCAL_PORT)" "$(CONTAINER_PORT)" "$(SHELL_USER)"
+
+tailscale-browser-android: $(TAILSCALE_BROWSER_TUNNEL) ## Open a browser-safe localhost tunnel to the Android sandbox over Tailscale SSH
+	@TS_IP="$$(docker exec $(ANDROID_CONTAINER) sh -lc 'tailscale ip -4 2>/dev/null | head -1' || true)"; \
+	if [ -z "$$TS_IP" ]; then \
+		echo "Could not determine the Android container's Tailscale IP. Run 'make setup-tailscale-android' first."; \
+		exit 1; \
+	fi; \
+	echo "Raw http://$$TS_IP:8080 is not a secure browser context."; \
+	echo "Forwarding localhost:$(ANDROID_TAILSCALE_BROWSER_LOCAL_PORT) -> $$TS_IP:8080 over SSH."; \
+	'./$(TAILSCALE_BROWSER_TUNNEL)' "$$TS_IP" "$(ANDROID_TAILSCALE_BROWSER_LOCAL_PORT)" "$(CONTAINER_PORT)" "$(SHELL_USER)"
+
+setup-tailscale-android: ## Install/configure Tailscale + SSH in the Android container and provision direct HTTPS access
 	@$(MAKE) --no-print-directory setup-tailscale \
+		CONTAINER=$(ANDROID_CONTAINER) \
+		TAILSCALE_HOSTNAME=$(ANDROID_TAILSCALE_HOSTNAME) \
+		TAILSCALE_GODEBUG=cpu.all=off
+
+setup-tailscale-https-android: ## Provision HTTPS on the Android sandbox Tailscale interface and export the local CA cert
+	@$(MAKE) --no-print-directory setup-tailscale-https \
 		CONTAINER=$(ANDROID_CONTAINER) \
 		TAILSCALE_HOSTNAME=$(ANDROID_TAILSCALE_HOSTNAME)
 

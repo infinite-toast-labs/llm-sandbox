@@ -104,3 +104,18 @@ serial `emulator-5560`.
   the macOS side.
 - The container no longer connects directly to the emulator TCP port. It uses
   the host ADB server instead, which is more reliable on Docker Desktop.
+- `make setup-tailscale-android` starts `tailscaled` with
+  `GODEBUG=cpu.all=off` inside the amd64/Rosetta container. Without that Go
+  runtime setting, Tailscale registration can fail with control-plane
+  `chacha20poly1305: message authentication failed` errors.
+- If you open the dashboard as `http://<tailscale-ip>:8080`, Chrome treats it
+  as an insecure context. Image previews, markdown preview, clipboard access,
+  and other webview features in code-server can fail in that mode.
+- `make setup-tailscale-android` now also provisions HTTPS on the container's
+  Tailscale interface and exports a local CA cert to
+  `tailscale-certs/llm-sandbox-android-root-ca.crt`.
+- Install and trust that CA cert on any client device that should open the
+  sandbox directly, then use either
+  `https://<tailscale-dns-name>/` or `https://<tailscale-ip>/`.
+- `make tailscale-browser-android` still exists as a tunnel-based fallback if
+  you do not want to install the CA cert on a client device.

@@ -7,11 +7,13 @@ TAILSCALE_AUTH_KEY="${TAILSCALE_AUTH_KEY:-}"
 TAILSCALE_EXTRA_ARGS="${TAILSCALE_EXTRA_ARGS:-}"
 TAILSCALE_SOCKET="${TAILSCALE_SOCKET:-/var/run/tailscale/tailscaled.sock}"
 TAILSCALE_UP_TIMEOUT="${TAILSCALE_UP_TIMEOUT:-20s}"
+TAILSCALE_GODEBUG="${TAILSCALE_GODEBUG:-}"
 SSH_PUBLIC_KEY="${SSH_PUBLIC_KEY:-}"
 TAILSCALE_STATE_DIR="${TAILSCALE_STATE_DIR:-/home/${SHELL_USER}/.tailscale}"
 TAILSCALE_STATE_FILE="${TAILSCALE_STATE_DIR}/tailscaled.state"
 SSHD_DROPIN="/etc/ssh/sshd_config.d/99-llm-sandbox.conf"
 USING_USERSPACE=0
+LAST_TAILSCALE_UP_OUTPUT=""
 
 has_systemd() {
     command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
@@ -112,9 +114,18 @@ tailscale_cmd() {
     tailscale --socket="${TAILSCALE_SOCKET}" "$@"
 }
 
+tailscale_ip() {
+    tailscale_cmd ip -4 2>/dev/null | head -1 || true
+}
+
 ensure_tailscaled_running() {
     mkdir -p /var/run/tailscale "${TAILSCALE_STATE_DIR}"
     chown -R "${SHELL_USER}:${SHELL_USER}" "${TAILSCALE_STATE_DIR}"
+
+    if [ -n "${TAILSCALE_GODEBUG}" ] && pgrep -x tailscaled >/dev/null 2>&1; then
+        pkill -x tailscaled >/dev/null 2>&1 || true
+        sleep 1
+    fi
 
     if tailscale_cmd debug prefs >/dev/null 2>&1; then
         return 0
@@ -129,13 +140,18 @@ ensure_tailscaled_running() {
         systemctl enable --now tailscaled
     else
         local -a tailscaled_args
+        local -a tailscaled_env
         tailscaled_args=(--state="${TAILSCALE_STATE_FILE}" --socket="${TAILSCALE_SOCKET}")
+        tailscaled_env=()
+        if [ -n "${TAILSCALE_GODEBUG}" ]; then
+            tailscaled_env+=(GODEBUG="${TAILSCALE_GODEBUG}")
+        fi
         if [ ! -e /dev/net/tun ]; then
             echo "Note: /dev/net/tun not found, using userspace networking mode."
             tailscaled_args+=(--tun=userspace-networking)
             USING_USERSPACE=1
         fi
-        nohup tailscaled "${tailscaled_args[@]}" >/var/log/tailscaled.log 2>&1 &
+        nohup env "${tailscaled_env[@]}" tailscaled "${tailscaled_args[@]}" >/var/log/tailscaled.log 2>&1 &
     fi
 
     for _ in {1..30}; do
@@ -153,6 +169,10 @@ tailscale_up() {
     local -a up_args
     up_args=(--ssh --accept-routes --hostname="${TAILSCALE_HOSTNAME}" --timeout="${TAILSCALE_UP_TIMEOUT}")
 
+    if [ "${1:-}" = "--force-reauth" ]; then
+        up_args+=(--force-reauth)
+    fi
+
     if [ -n "${TAILSCALE_AUTH_KEY}" ]; then
         up_args+=(--authkey="${TAILSCALE_AUTH_KEY}")
     fi
@@ -169,11 +189,62 @@ tailscale_up() {
     up_output="$(tailscale_cmd up "${up_args[@]}" 2>&1)"
     local up_code=$?
     set -e
+    LAST_TAILSCALE_UP_OUTPUT="${up_output}"
 
     printf '%s\n' "${up_output}"
     if [ "${up_code}" -ne 0 ]; then
         echo "tailscale up exited with code ${up_code}."
     fi
+}
+
+tailscale_auth_state_is_stale() {
+    local status_output log_output diagnosis
+    status_output="$(tailscale_cmd status 2>&1 || true)"
+    log_output="$(tail -200 /var/log/tailscaled.log 2>/dev/null || true)"
+    diagnosis="${LAST_TAILSCALE_UP_OUTPUT}
+${status_output}
+${log_output}"
+
+    printf '%s\n' "${diagnosis}" | grep -Eiq 'chacha20poly1305|message authentication failed'
+}
+
+restart_tailscaled_with_fresh_state() {
+    local backup_dir backup_file
+    backup_dir="${TAILSCALE_STATE_DIR}/state-backups"
+    backup_file="${backup_dir}/tailscaled.state.$(date +%Y%m%d%H%M%S).bak"
+
+    echo "Backing up stale Tailscale state to ${backup_file}"
+    mkdir -p "${backup_dir}"
+    if [ -e "${TAILSCALE_STATE_FILE}" ]; then
+        mv "${TAILSCALE_STATE_FILE}" "${backup_file}"
+    fi
+    chown -R "${SHELL_USER}:${SHELL_USER}" "${TAILSCALE_STATE_DIR}"
+
+    pkill -x tailscaled >/dev/null 2>&1 || true
+    sleep 1
+    ensure_tailscaled_running
+}
+
+recover_stale_tailscale_auth() {
+    if [ -z "${TAILSCALE_AUTH_KEY}" ]; then
+        return 0
+    fi
+    if [ -n "$(tailscale_ip)" ]; then
+        return 0
+    fi
+    if ! tailscale_auth_state_is_stale; then
+        return 0
+    fi
+
+    echo "Detected stale Tailscale auth state; retrying with forced reauthentication."
+    tailscale_up --force-reauth
+    if [ -n "$(tailscale_ip)" ]; then
+        return 0
+    fi
+
+    echo "Forced reauthentication did not recover Tailscale; registering from fresh state."
+    restart_tailscaled_with_fresh_state
+    tailscale_up
 }
 
 main() {
@@ -184,9 +255,10 @@ main() {
     ensure_sshd_running
     ensure_tailscaled_running
     tailscale_up
+    recover_stale_tailscale_auth
 
     local tailscale_ip
-    tailscale_ip="$(tailscale_cmd ip -4 2>/dev/null | head -1 || true)"
+    tailscale_ip="$(tailscale_ip)"
     if [ -z "${tailscale_ip}" ]; then
         echo "Tailscale is installed but not connected yet."
         echo "If a login URL was printed above, open it, then rerun make setup-tailscale."
@@ -208,6 +280,9 @@ main() {
     echo "  tailscale ssh ${SHELL_USER}@${TAILSCALE_HOSTNAME}"
     if [ "${USING_USERSPACE}" = "0" ] && [ -s "/home/${SHELL_USER}/.ssh/authorized_keys" ]; then
         echo "  ssh ${SHELL_USER}@${tailscale_ip}"
+        echo ""
+        echo "Plain http://${tailscale_ip}:8080 is not a secure browser context."
+        echo "The host-side make target provisions HTTPS and exports a local CA cert after this step."
     elif [ "${USING_USERSPACE}" = "1" ]; then
         echo "Userspace mode detected; use tailscale ssh for remote access."
     fi
