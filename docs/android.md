@@ -16,11 +16,30 @@ installed on the host:
 - `avdmanager`
 - `sdkmanager`
 
-Run the rough prerequisite check before anything else:
+If you install the SDK through Android Studio, make sure the command-line tools
+package is installed too:
+
+1. Open Android Studio.
+2. Go to **Settings/Preferences > Languages & Frameworks > Android SDK > SDK Tools**.
+3. Enable **Android SDK Command-line Tools (latest)** and apply the change.
+4. Restart the terminal you use for this repo, or export `ANDROID_SDK_ROOT` so
+   it points at the SDK root.
+
+On macOS, Android Studio usually installs the SDK at
+`~/Library/Android/sdk`. After the command-line tools package is installed,
+these files should exist:
+
+```text
+~/Library/Android/sdk/cmdline-tools/latest/bin/avdmanager
+~/Library/Android/sdk/cmdline-tools/latest/bin/sdkmanager
+```
+
+Run the setup targets in this order:
 
 ```bash
 make android-docker-rosetta
 make android-prereqs
+make android-start
 ```
 
 If any required tool is missing, the target exits early with the expected

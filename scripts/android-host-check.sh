@@ -29,14 +29,14 @@ android_resolve_host_sdk_root
 android_require_host_tools adb emulator avdmanager sdkmanager
 
 if [ "$(uname -m)" = "arm64" ]; then
-  docker_settings="$HOME/Library/Group Containers/group.com.docker/settings.json"
+  docker_settings="$(android_resolve_docker_settings_path || true)"
   if [ -f "$docker_settings" ]; then
     docker_flags="$(python3 -c '
 import json, sys
 with open(sys.argv[1], "r", encoding="utf-8") as fh:
     data = json.load(fh)
-print("1" if data.get("useVirtualizationFramework") else "0")
-print("1" if data.get("useVirtualizationFrameworkRosetta") else "0")
+print("1" if data.get("useVirtualizationFramework") or data.get("UseVirtualizationFramework") else "0")
+print("1" if data.get("useVirtualizationFrameworkRosetta") or data.get("UseVirtualizationFrameworkRosetta") else "0")
 ' "$docker_settings" 2>/dev/null || true)"
     docker_vf_enabled="$(printf '%s\n' "$docker_flags" | sed -n '1p')"
     docker_rosetta_enabled="$(printf '%s\n' "$docker_flags" | sed -n '2p')"

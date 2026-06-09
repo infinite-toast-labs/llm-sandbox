@@ -20,20 +20,24 @@ if [ "$(uname -m)" != "arm64" ]; then
   exit 0
 fi
 
-docker_settings="$HOME/Library/Group Containers/group.com.docker/settings.json"
-if [ ! -f "$docker_settings" ]; then
-  echo "Error: Docker Desktop settings file not found at $docker_settings." >&2
+docker_settings="$(android_resolve_docker_settings_path || true)"
+if [ -z "$docker_settings" ]; then
+  echo "Error: Docker Desktop settings directory not found." >&2
   echo "Start Docker Desktop once manually, then rerun this target." >&2
   exit 1
 fi
 
+echo "Updating Docker Desktop settings at $docker_settings..."
 python3 - "$docker_settings" <<'PY'
 import json
 import pathlib
 import sys
 
 settings_path = pathlib.Path(sys.argv[1])
-data = json.loads(settings_path.read_text(encoding="utf-8"))
+if settings_path.exists():
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+else:
+    data = {}
 data["useVirtualizationFramework"] = True
 data["useVirtualizationFrameworkRosetta"] = True
 settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")

@@ -13,12 +13,43 @@ ANDROID_HOST_ADB="${ANDROID_HOST_ADB:-}"
 ANDROID_HOST_EMULATOR="${ANDROID_HOST_EMULATOR:-}"
 ANDROID_HOST_AVDMANAGER="${ANDROID_HOST_AVDMANAGER:-}"
 ANDROID_HOST_SDKMANAGER="${ANDROID_HOST_SDKMANAGER:-}"
+DOCKER_DESKTOP_SETTINGS="${DOCKER_DESKTOP_SETTINGS:-}"
 
 android_require_macos() {
   if [ "$(uname -s)" != "Darwin" ]; then
     echo "Error: the optional Android sandbox workflow currently expects a macOS host." >&2
     exit 1
   fi
+}
+
+android_docker_settings_candidates() {
+  if [ -n "$DOCKER_DESKTOP_SETTINGS" ]; then
+    printf '%s\n' "$DOCKER_DESKTOP_SETTINGS"
+  fi
+  printf '%s\n' \
+    "$HOME/Library/Group Containers/group.com.docker/settings-store.json" \
+    "$HOME/Library/Group Containers/group.com.docker/settings.json" \
+    "$HOME/Library/Application Support/Docker/settings-store.json" \
+    "$HOME/Library/Application Support/Docker/settings.json"
+}
+
+android_resolve_docker_settings_path() {
+  local candidate preferred
+
+  preferred="$HOME/Library/Group Containers/group.com.docker/settings-store.json"
+  while IFS= read -r candidate; do
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done < <(android_docker_settings_candidates)
+
+  if [ -d "$(dirname "$preferred")" ]; then
+    printf '%s\n' "$preferred"
+    return 0
+  fi
+
+  return 1
 }
 
 android_resolve_host_sdk_root() {
