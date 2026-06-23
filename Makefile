@@ -107,9 +107,11 @@ up: build ## Create/start the container and run first-time setup
 		fi; \
 		echo "Waiting for container to initialize..."; \
 		sleep 5; \
-		echo "Running first-time AI tools setup..."; \
-		docker exec $(CONTAINER) /opt/setup-ai-tools.sh; \
 	fi
+	@echo "Checking AI tools setup..."
+	@docker cp setup-ai-tools.sh $(CONTAINER):/opt/setup-ai-tools.sh
+	@docker exec -u root $(CONTAINER) chmod +x /opt/setup-ai-tools.sh
+	@docker exec $(CONTAINER) /opt/setup-ai-tools.sh
 	@echo ""
 	@echo "Dashboard: http://localhost:$(HOST_PORT)"
 	@echo "Shell:     $(SHELL_HINT)"

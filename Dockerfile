@@ -8,7 +8,7 @@ ARG ANDROID_BUILD_TOOLS=34.0.0
 
 ENV ANDROID_HOME=${ANDROID_SDK_ROOT}
 ENV ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}
-ENV PATH=${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools:${PATH}
+ENV PATH=/home/gem/.opencode/bin:/home/gem/.npm-global/bin:/home/gem/.local/bin:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools:${PATH}
 
 COPY setup-ai-tools.sh /opt/setup-ai-tools.sh
 RUN chmod +x /opt/setup-ai-tools.sh
@@ -56,6 +56,10 @@ RUN echo 'alias cdsp="claude --dangerously-skip-permissions"' >> /etc/profile &&
         '# >>> llm-sandbox tool env >>>' \
         'export NPM_CONFIG_PREFIX="$HOME/.npm-global"' \
         'mkdir -p "$NPM_CONFIG_PREFIX/bin" "$NPM_CONFIG_PREFIX/lib" >/dev/null 2>&1 || true' \
+        'case ":$PATH:" in' \
+        '  *":$HOME/.opencode/bin:"*) ;;' \
+        '  *) export PATH="$HOME/.opencode/bin:$PATH" ;;' \
+        'esac' \
         'case ":$PATH:" in' \
         '  *":$NPM_CONFIG_PREFIX/bin:"*) ;;' \
         '  *) export PATH="$NPM_CONFIG_PREFIX/bin:$PATH" ;;' \
