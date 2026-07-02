@@ -17,6 +17,7 @@ TAILSCALE_HTTPS_SCRIPT := scripts/setup-tailscale-https.sh
 TAILSCALE_SOCKET   := /var/run/tailscale/tailscaled.sock
 TAILSCALE_UP_TIMEOUT ?= 20s
 TAILSCALE_GODEBUG ?=
+TAILSCALE_SSH ?= 1
 TAILSCALE_HTTPS_PORT ?= 443
 TAILSCALE_CERT_EXPORT_DIR ?= $(CURDIR)/tailscale-certs
 SSH_KEY_FILE       ?= $(HOME)/.ssh/id_ed25519.pub
@@ -32,6 +33,8 @@ ANDROID_CREATE_AVD        := scripts/android-create-avd.sh
 ANDROID_START_EMULATOR    := scripts/android-start-emulator.sh
 ANDROID_STOP_EMULATOR     := scripts/android-stop-emulator.sh
 ANDROID_CONNECT_CONTAINER := scripts/android-container-connect.sh
+CLIPBOARD_INSTALL_SCRIPT := clipboard-bridge/install.sh
+CLIPBOARD_ANDROID_INSTALL_SCRIPT := clipboard-bridge/install-android.sh
 TAILSCALE_BROWSER_TUNNEL := scripts/tailscale-browser-tunnel.sh
 TAILSCALE_BROWSER_LOCAL_PORT ?= 18080
 ANDROID_TAILSCALE_BROWSER_LOCAL_PORT ?= 18081
@@ -46,8 +49,9 @@ ANDROID_EMULATOR_WINDOW_MODE ?= headless
 -include .env
 export
 
-.PHONY: up start stop destroy clean backup status shell build logs help setup-tailscale setup-tailscale-https tailscale-status setup-tailscale-android \
-	setup-tailscale-https-android \
+.PHONY: up start stop destroy clean backup status shell build logs help setup-tailscale setup-tailscale-openssh setup-tailscale-https tailscale-status setup-tailscale-android \
+	setup-tailscale-android-openssh setup-tailscale-https-android \
+	clipboard-install clipboard-install-android \
 	tailscale-browser tailscale-browser-android \
 	android-build android-up android-start android-stop android-clean android-destroy android-backup \
 	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start \
@@ -223,6 +227,7 @@ setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in con
 		-e TAILSCALE_SOCKET="$(TAILSCALE_SOCKET)" \
 		-e TAILSCALE_UP_TIMEOUT="$(TAILSCALE_UP_TIMEOUT)" \
 		-e TAILSCALE_GODEBUG="$(TAILSCALE_GODEBUG)" \
+		-e TAILSCALE_SSH="$(TAILSCALE_SSH)" \
 		-e SSH_PUBLIC_KEY="$$SSH_KEY_VALUE" \
 		$(CONTAINER) bash /tmp/setup-tailscale.sh || SETUP_RC=$$?; \
 	docker exec -u root $(CONTAINER) rm -f /tmp/setup-tailscale.sh >/dev/null 2>&1 || true; \
@@ -231,11 +236,16 @@ setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in con
 	echo ""; \
 	if [ -n "$$TS_IP" ]; then \
 		echo "Tailscale IP: $$TS_IP"; \
-		echo "Tailscale SSH: tailscale ssh $(SHELL_USER)@$(TAILSCALE_HOSTNAME)"; \
+		case "$(TAILSCALE_SSH)" in \
+			1|true|TRUE|yes|YES|on|ON) echo "Tailscale SSH: tailscale ssh $(SHELL_USER)@$(TAILSCALE_HOSTNAME)";; \
+		esac; \
 		if [ "$$HAS_TUN" = "1" ]; then \
 			echo "OpenSSH:       ssh $(SHELL_USER)@$$TS_IP"; \
 		else \
-			echo "Note: userspace mode active; use tailscale ssh command above."; \
+			case "$(TAILSCALE_SSH)" in \
+				1|true|TRUE|yes|YES|on|ON) echo "Note: userspace mode active; use tailscale ssh command above.";; \
+				*) echo "Note: userspace mode active; direct OpenSSH over Tailscale may not be reachable.";; \
+			esac; \
 		fi; \
 	else \
 		echo "Tailscale installed but not connected yet."; \
@@ -247,6 +257,9 @@ setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in con
 	$(MAKE) --no-print-directory setup-tailscale-https \
 		CONTAINER=$(CONTAINER) \
 		TAILSCALE_HOSTNAME=$(TAILSCALE_HOSTNAME)
+
+setup-tailscale-openssh: ## Configure Tailscale with Tailscale SSH off so normal OpenSSH key auth handles port 22
+	@$(MAKE) --no-print-directory setup-tailscale TAILSCALE_SSH=0
 
 setup-tailscale-https: $(TAILSCALE_HTTPS_SCRIPT) ## Provision HTTPS on the container's Tailscale interface and export the local CA cert
 	@set -euo pipefail; \
@@ -322,6 +335,9 @@ setup-tailscale-android: ## Install/configure Tailscale + SSH in the Android con
 		TAILSCALE_HOSTNAME=$(ANDROID_TAILSCALE_HOSTNAME) \
 		TAILSCALE_GODEBUG=cpu.all=off
 
+setup-tailscale-android-openssh: ## Configure Android sandbox Tailscale with Tailscale SSH off for normal OpenSSH key auth
+	@$(MAKE) --no-print-directory setup-tailscale-android TAILSCALE_SSH=0
+
 setup-tailscale-https-android: ## Provision HTTPS on the Android sandbox Tailscale interface and export the local CA cert
 	@$(MAKE) --no-print-directory setup-tailscale-https \
 		CONTAINER=$(ANDROID_CONTAINER) \
@@ -357,6 +373,16 @@ status: ## Show container and volume status
 
 logs: ## Tail container logs
 	@docker logs -f $(CONTAINER) 2>/dev/null || echo "Container '$(CONTAINER)' not found."
+
+clipboard-install: $(CLIPBOARD_INSTALL_SCRIPT) ## Install the clipboard bridge into the default sandbox
+	@DEFAULT_CONTAINER='$(CONTAINER)' \
+	DASHBOARD_URL='http://localhost:$(HOST_PORT)' \
+	'./$(CLIPBOARD_INSTALL_SCRIPT)' '$(CONTAINER)'
+
+clipboard-install-android: $(CLIPBOARD_ANDROID_INSTALL_SCRIPT) ## Install the clipboard bridge into the optional Android sandbox
+	@DEFAULT_CONTAINER='$(ANDROID_CONTAINER)' \
+	DASHBOARD_URL='http://localhost:$(ANDROID_HOST_PORT)' \
+	'./$(CLIPBOARD_ANDROID_INSTALL_SCRIPT)' '$(ANDROID_CONTAINER)'
 
 # -- Optional Android Sandbox --------------------------------------------------
 

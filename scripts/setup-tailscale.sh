@@ -8,6 +8,7 @@ TAILSCALE_EXTRA_ARGS="${TAILSCALE_EXTRA_ARGS:-}"
 TAILSCALE_SOCKET="${TAILSCALE_SOCKET:-/var/run/tailscale/tailscaled.sock}"
 TAILSCALE_UP_TIMEOUT="${TAILSCALE_UP_TIMEOUT:-20s}"
 TAILSCALE_GODEBUG="${TAILSCALE_GODEBUG:-}"
+TAILSCALE_SSH="${TAILSCALE_SSH:-1}"
 SSH_PUBLIC_KEY="${SSH_PUBLIC_KEY:-}"
 TAILSCALE_STATE_DIR="${TAILSCALE_STATE_DIR:-/home/${SHELL_USER}/.tailscale}"
 TAILSCALE_STATE_FILE="${TAILSCALE_STATE_DIR}/tailscaled.state"
@@ -167,7 +168,18 @@ ensure_tailscaled_running() {
 
 tailscale_up() {
     local -a up_args
-    up_args=(--ssh --accept-routes --hostname="${TAILSCALE_HOSTNAME}" --timeout="${TAILSCALE_UP_TIMEOUT}")
+    local ssh_flag
+    case "${TAILSCALE_SSH}" in
+        1|true|TRUE|yes|YES|on|ON) ssh_flag="true" ;;
+        *) ssh_flag="false" ;;
+    esac
+
+    up_args=(--accept-routes --hostname="${TAILSCALE_HOSTNAME}" --timeout="${TAILSCALE_UP_TIMEOUT}")
+    if [ "${ssh_flag}" = "true" ]; then
+        up_args+=(--ssh)
+    else
+        up_args+=(--ssh=false)
+    fi
 
     if [ "${1:-}" = "--force-reauth" ]; then
         up_args+=(--force-reauth)
@@ -277,14 +289,19 @@ main() {
     echo "Setup complete."
     echo "Tailscale IPv4: ${tailscale_ip}"
     echo "From another tailnet device:"
-    echo "  tailscale ssh ${SHELL_USER}@${TAILSCALE_HOSTNAME}"
+    case "${TAILSCALE_SSH}" in
+        1|true|TRUE|yes|YES|on|ON) echo "  tailscale ssh ${SHELL_USER}@${TAILSCALE_HOSTNAME}" ;;
+    esac
     if [ "${USING_USERSPACE}" = "0" ] && [ -s "/home/${SHELL_USER}/.ssh/authorized_keys" ]; then
         echo "  ssh ${SHELL_USER}@${tailscale_ip}"
         echo ""
         echo "Plain http://${tailscale_ip}:8080 is not a secure browser context."
         echo "The host-side make target provisions HTTPS and exports a local CA cert after this step."
     elif [ "${USING_USERSPACE}" = "1" ]; then
-        echo "Userspace mode detected; use tailscale ssh for remote access."
+        case "${TAILSCALE_SSH}" in
+            1|true|TRUE|yes|YES|on|ON) echo "Userspace mode detected; use tailscale ssh for remote access." ;;
+            *) echo "Userspace mode detected; direct OpenSSH over Tailscale may not be reachable." ;;
+        esac
     fi
 }
 
