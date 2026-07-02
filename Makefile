@@ -49,11 +49,11 @@ ANDROID_EMULATOR_WINDOW_MODE ?= headless
 -include .env
 export
 
-.PHONY: up start stop destroy clean backup status shell build logs help setup-tailscale setup-tailscale-openssh setup-tailscale-https tailscale-status setup-tailscale-android \
+.PHONY: up start stop restart destroy clean backup status shell build logs help setup-tailscale setup-tailscale-openssh setup-tailscale-https tailscale-status setup-tailscale-android \
 	setup-tailscale-android-openssh setup-tailscale-https-android \
 	clipboard-install clipboard-install-android \
 	tailscale-browser tailscale-browser-android \
-	android-build android-up android-start android-stop android-clean android-destroy android-backup \
+	android-build android-up android-start android-stop android-restart android-clean android-destroy android-backup \
 	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start \
 	android-emulator-start-visible android-emulator-stop android-connect android-connect-visible \
 	android-docker-rosetta \
@@ -129,6 +129,12 @@ stop: ## Stop the container (data preserved)
 	else \
 		echo "Container '$(CONTAINER)' does not exist."; \
 	fi
+
+restart: ## Gracefully stop/start the container, then set up Tailscale and clipboard bridge (data preserved)
+	@$(MAKE) --no-print-directory stop
+	@$(MAKE) --no-print-directory start
+	@$(MAKE) --no-print-directory setup-tailscale
+	@$(MAKE) --no-print-directory clipboard-install
 
 clean: ## Stop and remove the container (volume preserved)
 	@echo "This will stop and remove container '$(CONTAINER)'."
@@ -462,6 +468,12 @@ android-start: android-up ## Alias for 'android-up'
 
 android-stop: ## Stop the optional Android-enabled sandbox container
 	@$(MAKE) --no-print-directory stop CONTAINER=$(ANDROID_CONTAINER)
+
+android-restart: ## Gracefully stop/start Android sandbox, then set up Tailscale and clipboard bridge (data preserved)
+	@$(MAKE) --no-print-directory android-stop
+	@$(MAKE) --no-print-directory android-start
+	@$(MAKE) --no-print-directory setup-tailscale-android
+	@$(MAKE) --no-print-directory clipboard-install-android
 
 android-clean: ## Stop and remove the optional Android-enabled container (volume preserved)
 	@$(MAKE) --no-print-directory clean CONTAINER=$(ANDROID_CONTAINER) VOLUME=$(ANDROID_VOLUME)
