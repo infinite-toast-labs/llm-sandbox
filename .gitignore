@@ -2,3 +2,8 @@
 sbx-shared/
 .DS_Store
 .env
+tmp/
+tailscale-certs/
+**/.gradle/
+**/local.properties
+**/build/

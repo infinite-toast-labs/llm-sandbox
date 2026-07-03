@@ -5,6 +5,7 @@
 #   ./clipboard-bridge/install.sh [CONTAINER_NAME]
 #
 # Default container name: llm-sandbox
+# Default dashboard URL: http://localhost:8080
 #
 # This script:
 #   1. Copies clipboard_server.py and clip to /home/gem/
@@ -19,7 +20,9 @@
 
 set -euo pipefail
 
-CONTAINER="${1:-llm-sandbox}"
+DEFAULT_CONTAINER="${DEFAULT_CONTAINER:-llm-sandbox}"
+DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:8080}"
+CONTAINER="${1:-$DEFAULT_CONTAINER}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "Installing clipboard bridge into container: ${CONTAINER}"
@@ -99,7 +102,7 @@ STATUS=$(docker exec -u root "${CONTAINER}" supervisorctl status clipboard-serve
 if [ "$STATUS" = "RUNNING" ]; then
     echo ""
     echo "Clipboard bridge installed and running."
-    echo "  - Reload localhost:8080 in your browser"
+    echo "  - Reload ${DASHBOARD_URL} in your browser"
     echo "  - In tmux, copy text with y or Enter in copy mode"
     echo "  - Text will appear in your system clipboard"
 else

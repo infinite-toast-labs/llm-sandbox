@@ -1,31 +1,74 @@
 # LLM Sandbox — Persistent Docker Development Environment
 
-IMAGE_NAME     := llm-sandbox
-CONTAINER      := llm-sandbox
-VOLUME         := llm-sandbox-home
-HOST_PORT      := 8080
+IMAGE_NAME     ?= llm-sandbox
+CONTAINER      ?= llm-sandbox
+VOLUME         ?= llm-sandbox-home
+HOST_PORT      ?= 8080
 CONTAINER_PORT := 8080
 SHARED_DIR     := $(CURDIR)/sbx-shared
 SHELL_USER     := gem
+SHELL_HINT     ?= make shell
+STREAMLIT_HOST_PORT ?= 8501
+DOCKER_BUILD_ARGS ?=
+DOCKER_RUN_ARGS ?=
 TAILSCALE_HOSTNAME ?= llm-sandbox
 TAILSCALE_SCRIPT   := scripts/setup-tailscale.sh
+TAILSCALE_HTTPS_SCRIPT := scripts/setup-tailscale-https.sh
 TAILSCALE_SOCKET   := /var/run/tailscale/tailscaled.sock
 TAILSCALE_UP_TIMEOUT ?= 20s
+TAILSCALE_GODEBUG ?=
+TAILSCALE_SSH ?= 1
+TAILSCALE_HTTPS_PORT ?= 443
+TAILSCALE_CERT_EXPORT_DIR ?= $(CURDIR)/tailscale-certs
 SSH_KEY_FILE       ?= $(HOME)/.ssh/id_ed25519.pub
+ANDROID_TAILSCALE_HOSTNAME ?= $(ANDROID_CONTAINER)
+ANDROID_IMAGE_NAME ?= llm-sandbox-android
+ANDROID_CONTAINER  ?= llm-sandbox-android
+ANDROID_VOLUME     ?= llm-sandbox-android-home
+ANDROID_HOST_PORT  ?= 8081
+ANDROID_STREAMLIT_HOST_PORT ?= 8502
+ANDROID_HOST_CHECK        := scripts/android-host-check.sh
+ANDROID_DOCKER_ROSETTA   := scripts/android-docker-rosetta.sh
+ANDROID_CREATE_AVD        := scripts/android-create-avd.sh
+ANDROID_START_EMULATOR    := scripts/android-start-emulator.sh
+ANDROID_STOP_EMULATOR     := scripts/android-stop-emulator.sh
+ANDROID_CONNECT_CONTAINER := scripts/android-container-connect.sh
+CLIPBOARD_INSTALL_SCRIPT := clipboard-bridge/install.sh
+CLIPBOARD_ANDROID_INSTALL_SCRIPT := clipboard-bridge/install-android.sh
+TAILSCALE_BROWSER_TUNNEL := scripts/tailscale-browser-tunnel.sh
+TAILSCALE_BROWSER_LOCAL_PORT ?= 18080
+ANDROID_TAILSCALE_BROWSER_LOCAL_PORT ?= 18081
+ANDROID_AVD_NAME          ?= llm_sandbox_pixel_9_pro_api_36_1
+ANDROID_DEVICE_ID         ?= pixel_9_pro
+ANDROID_SYSTEM_IMAGE      ?= system-images;android-36.1;google_apis_playstore;arm64-v8a
+ANDROID_AVD_RAM_SIZE      ?= 4096
+ANDROID_AVD_VM_HEAP_SIZE  ?= 512
+ANDROID_EMULATOR_PORT     ?= 5560
+ANDROID_EMULATOR_TCP_PORT ?= 5561
+ANDROID_HOST_ADB_SERVER_PORT ?= 5037
+ANDROID_EMULATOR_WINDOW_MODE ?= headless
 
 -include .env
 export
 
-.PHONY: up start stop destroy clean backup status shell build logs help setup-tailscale tailscale-status
+.PHONY: up start stop restart destroy clean backup status shell build logs help setup-tailscale setup-tailscale-openssh setup-tailscale-https tailscale-status setup-tailscale-android \
+	setup-tailscale-android-openssh setup-tailscale-https-android \
+	clipboard-install clipboard-install-android \
+	tailscale-browser tailscale-browser-android \
+	android-build android-up android-start android-stop android-restart android-clean android-destroy android-backup \
+	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start \
+	android-emulator-start-visible android-emulator-stop android-connect android-connect-visible \
+	android-docker-rosetta \
+	android-up-visible
 
 help: ## Show available targets
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
 
 # -- Build ---------------------------------------------------------------------
 
 build: Dockerfile setup-ai-tools.sh ## Build the Docker image
-	docker build -t $(IMAGE_NAME) .
+	docker build $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME) .
 
 # -- Lifecycle -----------------------------------------------------------------
 
@@ -43,11 +86,11 @@ up: build ## Create/start the container and run first-time setup
 		mkdir -p $(SHARED_DIR); \
 		docker volume create $(VOLUME) >/dev/null 2>&1 || true; \
 		echo "Attempting to start with /dev/net/tun enabled..."; \
-		if docker run -d \
+		if docker run -d $(DOCKER_RUN_ARGS) \
 			--name $(CONTAINER) \
 			--hostname $(CONTAINER) \
 			-p $(HOST_PORT):$(CONTAINER_PORT) \
-			-p 8501:8501 \
+			-p $(STREAMLIT_HOST_PORT):8501 \
 			--cap-add NET_ADMIN \
 			--security-opt seccomp=unconfined \
 			--device /dev/net/tun \
@@ -57,11 +100,11 @@ up: build ## Create/start the container and run first-time setup
 			echo "/dev/net/tun enabled."; \
 		else \
 			echo "Warning: could not attach /dev/net/tun; falling back to userspace mode."; \
-			docker run -d \
+			docker run -d $(DOCKER_RUN_ARGS) \
 				--name $(CONTAINER) \
 				--hostname $(CONTAINER) \
 				-p $(HOST_PORT):$(CONTAINER_PORT) \
-				-p 8501:8501 \
+				-p $(STREAMLIT_HOST_PORT):8501 \
 				--cap-add NET_ADMIN \
 				--security-opt seccomp=unconfined \
 				-v $(VOLUME):/home/gem \
@@ -70,12 +113,14 @@ up: build ## Create/start the container and run first-time setup
 		fi; \
 		echo "Waiting for container to initialize..."; \
 		sleep 5; \
-		echo "Running first-time AI tools setup..."; \
-		docker exec $(CONTAINER) /opt/setup-ai-tools.sh; \
 	fi
+	@echo "Checking AI tools setup..."
+	@docker cp setup-ai-tools.sh $(CONTAINER):/opt/setup-ai-tools.sh
+	@docker exec -u root $(CONTAINER) chmod +x /opt/setup-ai-tools.sh
+	@docker exec $(CONTAINER) /opt/setup-ai-tools.sh
 	@echo ""
 	@echo "Dashboard: http://localhost:$(HOST_PORT)"
-	@echo "Shell:     make shell"
+	@echo "Shell:     $(SHELL_HINT)"
 
 start: up ## Alias for 'up'
 
@@ -86,6 +131,12 @@ stop: ## Stop the container (data preserved)
 	else \
 		echo "Container '$(CONTAINER)' does not exist."; \
 	fi
+
+restart: ## Gracefully stop/start the container, then set up Tailscale and clipboard bridge (data preserved)
+	@$(MAKE) --no-print-directory stop
+	@$(MAKE) --no-print-directory start
+	@$(MAKE) --no-print-directory setup-tailscale
+	@$(MAKE) --no-print-directory clipboard-install
 
 clean: ## Stop and remove the container (volume preserved)
 	@echo "This will stop and remove container '$(CONTAINER)'."
@@ -148,7 +199,7 @@ backup: ## Backup the home volume to a timestamped archive in repo root
 
 # -- Interaction ---------------------------------------------------------------
 
-setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in container
+setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in container and provision direct HTTPS access
 	@set -euo pipefail; \
 	if ! docker container inspect $(CONTAINER) >/dev/null 2>&1; then \
 		echo "Container '$(CONTAINER)' does not exist. Run 'make up' first."; \
@@ -183,6 +234,8 @@ setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in con
 		-e TAILSCALE_EXTRA_ARGS="$(TAILSCALE_EXTRA_ARGS)" \
 		-e TAILSCALE_SOCKET="$(TAILSCALE_SOCKET)" \
 		-e TAILSCALE_UP_TIMEOUT="$(TAILSCALE_UP_TIMEOUT)" \
+		-e TAILSCALE_GODEBUG="$(TAILSCALE_GODEBUG)" \
+		-e TAILSCALE_SSH="$(TAILSCALE_SSH)" \
 		-e SSH_PUBLIC_KEY="$$SSH_KEY_VALUE" \
 		$(CONTAINER) bash /tmp/setup-tailscale.sh || SETUP_RC=$$?; \
 	docker exec -u root $(CONTAINER) rm -f /tmp/setup-tailscale.sh >/dev/null 2>&1 || true; \
@@ -191,11 +244,16 @@ setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in con
 	echo ""; \
 	if [ -n "$$TS_IP" ]; then \
 		echo "Tailscale IP: $$TS_IP"; \
-		echo "Tailscale SSH: tailscale ssh $(SHELL_USER)@$(TAILSCALE_HOSTNAME)"; \
+		case "$(TAILSCALE_SSH)" in \
+			1|true|TRUE|yes|YES|on|ON) echo "Tailscale SSH: tailscale ssh $(SHELL_USER)@$(TAILSCALE_HOSTNAME)";; \
+		esac; \
 		if [ "$$HAS_TUN" = "1" ]; then \
 			echo "OpenSSH:       ssh $(SHELL_USER)@$$TS_IP"; \
 		else \
-			echo "Note: userspace mode active; use tailscale ssh command above."; \
+			case "$(TAILSCALE_SSH)" in \
+				1|true|TRUE|yes|YES|on|ON) echo "Note: userspace mode active; use tailscale ssh command above.";; \
+				*) echo "Note: userspace mode active; direct OpenSSH over Tailscale may not be reachable.";; \
+			esac; \
 		fi; \
 	else \
 		echo "Tailscale installed but not connected yet."; \
@@ -203,7 +261,45 @@ setup-tailscale: $(TAILSCALE_SCRIPT) ## Install/configure Tailscale + SSH in con
 	fi; \
 	if [ "$$SETUP_RC" -ne 0 ]; then \
 		exit "$$SETUP_RC"; \
-	fi
+	fi; \
+	$(MAKE) --no-print-directory setup-tailscale-https \
+		CONTAINER=$(CONTAINER) \
+		TAILSCALE_HOSTNAME=$(TAILSCALE_HOSTNAME)
+
+setup-tailscale-openssh: ## Configure Tailscale with Tailscale SSH off so normal OpenSSH key auth handles port 22
+	@$(MAKE) --no-print-directory setup-tailscale TAILSCALE_SSH=0
+
+setup-tailscale-https: $(TAILSCALE_HTTPS_SCRIPT) ## Provision HTTPS on the container's Tailscale interface and export the local CA cert
+	@set -euo pipefail; \
+	if ! docker container inspect -f '{{.State.Running}}' $(CONTAINER) 2>/dev/null | grep -q true; then \
+		echo "Container '$(CONTAINER)' is not running. Run 'make up' first."; \
+		exit 1; \
+	fi; \
+	docker cp $(TAILSCALE_HTTPS_SCRIPT) $(CONTAINER):/tmp/setup-tailscale-https.sh; \
+	HTTPS_RC=0; \
+	docker exec -u root \
+		-e SHELL_USER="$(SHELL_USER)" \
+		-e TAILSCALE_SOCKET="$(TAILSCALE_SOCKET)" \
+		-e TAILSCALE_HTTPS_PORT="$(TAILSCALE_HTTPS_PORT)" \
+		$(CONTAINER) bash /tmp/setup-tailscale-https.sh || HTTPS_RC=$$?; \
+	docker exec -u root $(CONTAINER) rm -f /tmp/setup-tailscale-https.sh >/dev/null 2>&1 || true; \
+	if [ "$$HTTPS_RC" -ne 0 ]; then \
+		exit "$$HTTPS_RC"; \
+	fi; \
+	mkdir -p "$(TAILSCALE_CERT_EXPORT_DIR)"; \
+	docker cp $(CONTAINER):/home/$(SHELL_USER)/.tailscale/https/ca.crt "$(TAILSCALE_CERT_EXPORT_DIR)/$(CONTAINER)-root-ca.crt" >/dev/null; \
+	HTTPS_URL="$$(docker exec $(CONTAINER) sh -lc 'cat /home/$(SHELL_USER)/.tailscale/https/url.txt 2>/dev/null || true')"; \
+	HTTPS_IP_URL="$$(docker exec $(CONTAINER) sh -lc 'cat /home/$(SHELL_USER)/.tailscale/https/ip-url.txt 2>/dev/null || true')"; \
+	echo ""; \
+	echo "Browser-safe direct access:"; \
+	if [ -n "$$HTTPS_URL" ]; then \
+		echo "  $$HTTPS_URL"; \
+	fi; \
+	if [ -n "$$HTTPS_IP_URL" ]; then \
+		echo "  $$HTTPS_IP_URL"; \
+	fi; \
+	echo "Trust this CA on each client device first:"; \
+	echo "  $(TAILSCALE_CERT_EXPORT_DIR)/$(CONTAINER)-root-ca.crt"
 
 tailscale-status: ## Show Tailscale + SSH status inside the container
 	@if docker container inspect -f '{{.State.Running}}' $(CONTAINER) 2>/dev/null | grep -q true; then \
@@ -221,6 +317,40 @@ tailscale-status: ## Show Tailscale + SSH status inside the container
 		exit 1; \
 	fi
 
+tailscale-browser: $(TAILSCALE_BROWSER_TUNNEL) ## Open a browser-safe localhost tunnel to the default sandbox over Tailscale SSH
+	@TS_IP="$$(docker exec $(CONTAINER) sh -lc 'tailscale ip -4 2>/dev/null | head -1' || true)"; \
+	if [ -z "$$TS_IP" ]; then \
+		echo "Could not determine the container's Tailscale IP. Run 'make setup-tailscale' first."; \
+		exit 1; \
+	fi; \
+	echo "Raw http://$$TS_IP:8080 is not a secure browser context."; \
+	echo "Forwarding localhost:$(TAILSCALE_BROWSER_LOCAL_PORT) -> $$TS_IP:8080 over SSH."; \
+	'./$(TAILSCALE_BROWSER_TUNNEL)' "$$TS_IP" "$(TAILSCALE_BROWSER_LOCAL_PORT)" "$(CONTAINER_PORT)" "$(SHELL_USER)"
+
+tailscale-browser-android: $(TAILSCALE_BROWSER_TUNNEL) ## Open a browser-safe localhost tunnel to the Android sandbox over Tailscale SSH
+	@TS_IP="$$(docker exec $(ANDROID_CONTAINER) sh -lc 'tailscale ip -4 2>/dev/null | head -1' || true)"; \
+	if [ -z "$$TS_IP" ]; then \
+		echo "Could not determine the Android container's Tailscale IP. Run 'make setup-tailscale-android' first."; \
+		exit 1; \
+	fi; \
+	echo "Raw http://$$TS_IP:8080 is not a secure browser context."; \
+	echo "Forwarding localhost:$(ANDROID_TAILSCALE_BROWSER_LOCAL_PORT) -> $$TS_IP:8080 over SSH."; \
+	'./$(TAILSCALE_BROWSER_TUNNEL)' "$$TS_IP" "$(ANDROID_TAILSCALE_BROWSER_LOCAL_PORT)" "$(CONTAINER_PORT)" "$(SHELL_USER)"
+
+setup-tailscale-android: ## Install/configure Tailscale + SSH in the Android container and provision direct HTTPS access
+	@$(MAKE) --no-print-directory setup-tailscale \
+		CONTAINER=$(ANDROID_CONTAINER) \
+		TAILSCALE_HOSTNAME=$(ANDROID_TAILSCALE_HOSTNAME) \
+		TAILSCALE_GODEBUG=cpu.all=off
+
+setup-tailscale-android-openssh: ## Configure Android sandbox Tailscale with Tailscale SSH off for normal OpenSSH key auth
+	@$(MAKE) --no-print-directory setup-tailscale-android TAILSCALE_SSH=0
+
+setup-tailscale-https-android: ## Provision HTTPS on the Android sandbox Tailscale interface and export the local CA cert
+	@$(MAKE) --no-print-directory setup-tailscale-https \
+		CONTAINER=$(ANDROID_CONTAINER) \
+		TAILSCALE_HOSTNAME=$(ANDROID_TAILSCALE_HOSTNAME)
+
 shell: ## Open a shell in the running container
 	@if docker container inspect -f '{{.State.Running}}' $(CONTAINER) 2>/dev/null | grep -q true; then \
 		docker exec -it -u $(SHELL_USER) -w /home/$(SHELL_USER) $(CONTAINER) bash -l; \
@@ -235,7 +365,7 @@ status: ## Show container and volume status
 		docker container inspect -f \
 			'Name:    {{.Name}}\nState:   {{.State.Status}}\nStarted: {{.State.StartedAt}}\nImage:   {{.Config.Image}}' \
 			$(CONTAINER); \
-		echo "Ports:   $(HOST_PORT)->$(CONTAINER_PORT)"; \
+		echo "Ports:   $(HOST_PORT)->$(CONTAINER_PORT), $(STREAMLIT_HOST_PORT)->8501"; \
 	else \
 		echo "Container '$(CONTAINER)' does not exist."; \
 	fi
@@ -251,3 +381,150 @@ status: ## Show container and volume status
 
 logs: ## Tail container logs
 	@docker logs -f $(CONTAINER) 2>/dev/null || echo "Container '$(CONTAINER)' not found."
+
+clipboard-install: $(CLIPBOARD_INSTALL_SCRIPT) ## Install the clipboard bridge into the default sandbox
+	@DEFAULT_CONTAINER='$(CONTAINER)' \
+	DASHBOARD_URL='http://localhost:$(HOST_PORT)' \
+	'./$(CLIPBOARD_INSTALL_SCRIPT)' '$(CONTAINER)'
+
+clipboard-install-android: $(CLIPBOARD_ANDROID_INSTALL_SCRIPT) ## Install the clipboard bridge into the optional Android sandbox
+	@DEFAULT_CONTAINER='$(ANDROID_CONTAINER)' \
+	DASHBOARD_URL='http://localhost:$(ANDROID_HOST_PORT)' \
+	'./$(CLIPBOARD_ANDROID_INSTALL_SCRIPT)' '$(ANDROID_CONTAINER)'
+
+# -- Optional Android Sandbox --------------------------------------------------
+
+android-build: ## Build the optional Android-enabled sandbox image
+	@$(MAKE) --no-print-directory build \
+		IMAGE_NAME=$(ANDROID_IMAGE_NAME) \
+		DOCKER_BUILD_ARGS='--platform=linux/amd64 --build-arg ENABLE_ANDROID=1'
+
+android-docker-rosetta: $(ANDROID_DOCKER_ROSETTA) ## Restart Docker Desktop with Apple Virtualization Framework + Rosetta enabled
+	@'./$(ANDROID_DOCKER_ROSETTA)'
+
+android-prereqs: $(ANDROID_HOST_CHECK) ## Check optional host prerequisites for Android support
+	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
+	ANDROID_DEVICE_ID='$(ANDROID_DEVICE_ID)' \
+	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
+	ANDROID_AVD_RAM_SIZE='$(ANDROID_AVD_RAM_SIZE)' \
+	ANDROID_AVD_VM_HEAP_SIZE='$(ANDROID_AVD_VM_HEAP_SIZE)' \
+	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	'./$(ANDROID_HOST_CHECK)'
+
+android-avd-create: android-prereqs $(ANDROID_CREATE_AVD) ## Create the deterministic optional host Pixel 9 Pro AVD
+	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
+	ANDROID_DEVICE_ID='$(ANDROID_DEVICE_ID)' \
+	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
+	ANDROID_AVD_RAM_SIZE='$(ANDROID_AVD_RAM_SIZE)' \
+	ANDROID_AVD_VM_HEAP_SIZE='$(ANDROID_AVD_VM_HEAP_SIZE)' \
+	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	'./$(ANDROID_CREATE_AVD)'
+
+android-emulator-start: android-avd-create $(ANDROID_START_EMULATOR) ## Start the optional host Android emulator and expose ADB/TCP
+	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
+	ANDROID_DEVICE_ID='$(ANDROID_DEVICE_ID)' \
+	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
+	ANDROID_AVD_RAM_SIZE='$(ANDROID_AVD_RAM_SIZE)' \
+	ANDROID_AVD_VM_HEAP_SIZE='$(ANDROID_AVD_VM_HEAP_SIZE)' \
+	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	ANDROID_EMULATOR_WINDOW_MODE='$(ANDROID_EMULATOR_WINDOW_MODE)' \
+	'./$(ANDROID_START_EMULATOR)'
+
+android-emulator-start-visible: ## Start the optional host Android emulator with a visible window
+	@$(MAKE) --no-print-directory android-emulator-start \
+		ANDROID_EMULATOR_WINDOW_MODE=windowed
+
+android-emulator-stop: $(ANDROID_STOP_EMULATOR) ## Stop the optional host Android emulator managed by this sandbox
+	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
+	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	'./$(ANDROID_STOP_EMULATOR)'
+
+android-connect: android-emulator-start $(ANDROID_CONNECT_CONTAINER) ## Connect the optional Android sandbox container to the host emulator
+	@$(MAKE) --no-print-directory up \
+		IMAGE_NAME=$(ANDROID_IMAGE_NAME) \
+		CONTAINER=$(ANDROID_CONTAINER) \
+		VOLUME=$(ANDROID_VOLUME) \
+		HOST_PORT=$(ANDROID_HOST_PORT) \
+		STREAMLIT_HOST_PORT=$(ANDROID_STREAMLIT_HOST_PORT) \
+		SHELL_HINT='make android-shell' \
+		DOCKER_BUILD_ARGS='--platform=linux/amd64 --build-arg ENABLE_ANDROID=1' \
+		DOCKER_RUN_ARGS='--platform=linux/amd64'
+	@ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	'./$(ANDROID_CONNECT_CONTAINER)' '$(ANDROID_CONTAINER)'
+
+android-connect-visible: ## Connect the optional Android sandbox container using a visible host emulator window
+	@$(MAKE) --no-print-directory android-connect \
+		ANDROID_EMULATOR_WINDOW_MODE=windowed
+
+android-up: android-connect ## Build and start the optional Android-enabled sandbox, host AVD, and ADB bridge
+
+android-up-visible: ## Build and start the optional Android-enabled sandbox with a visible host emulator window
+	@$(MAKE) --no-print-directory android-up \
+		ANDROID_EMULATOR_WINDOW_MODE=windowed
+
+android-start: android-up ## Alias for 'android-up'
+
+android-stop: ## Stop the optional Android-enabled sandbox container
+	@$(MAKE) --no-print-directory stop CONTAINER=$(ANDROID_CONTAINER)
+
+android-restart: ## Gracefully stop/start Android sandbox, then set up Tailscale and clipboard bridge (data preserved)
+	@$(MAKE) --no-print-directory android-stop
+	@$(MAKE) --no-print-directory android-start
+	@$(MAKE) --no-print-directory setup-tailscale-android
+	@$(MAKE) --no-print-directory clipboard-install-android
+
+android-clean: ## Stop and remove the optional Android-enabled container (volume preserved)
+	@$(MAKE) --no-print-directory clean CONTAINER=$(ANDROID_CONTAINER) VOLUME=$(ANDROID_VOLUME)
+
+android-destroy: ## Remove the optional Android-enabled container and volume (full reset)
+	@$(MAKE) --no-print-directory destroy CONTAINER=$(ANDROID_CONTAINER) VOLUME=$(ANDROID_VOLUME)
+
+android-backup: ## Backup the optional Android-enabled home volume to a timestamped archive
+	@$(MAKE) --no-print-directory backup IMAGE_NAME=$(ANDROID_IMAGE_NAME) VOLUME=$(ANDROID_VOLUME)
+
+android-shell: ## Open a shell in the optional Android-enabled container
+	@$(MAKE) --no-print-directory shell CONTAINER=$(ANDROID_CONTAINER)
+
+android-status: ## Show optional Android sandbox status and current ADB connectivity
+	@$(MAKE) --no-print-directory status \
+		CONTAINER=$(ANDROID_CONTAINER) \
+		VOLUME=$(ANDROID_VOLUME) \
+		HOST_PORT=$(ANDROID_HOST_PORT) \
+		STREAMLIT_HOST_PORT=$(ANDROID_STREAMLIT_HOST_PORT)
+	@echo ""
+	@echo "=== Host Android ==="
+	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
+	ANDROID_DEVICE_ID='$(ANDROID_DEVICE_ID)' \
+	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
+	ANDROID_AVD_RAM_SIZE='$(ANDROID_AVD_RAM_SIZE)' \
+	ANDROID_AVD_VM_HEAP_SIZE='$(ANDROID_AVD_VM_HEAP_SIZE)' \
+	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
+	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
+	'./$(ANDROID_HOST_CHECK)' --quiet || true
+	@ADB_BIN="$$(ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' ./$(ANDROID_HOST_CHECK) --print-adb 2>/dev/null || true)"; \
+	if [ -n "$$ADB_BIN" ]; then \
+		"$$ADB_BIN" devices; \
+	else \
+		echo "Host Android tools not fully available."; \
+	fi
+	@echo ""
+	@echo "=== Container ADB ==="
+	@if docker container inspect -f '{{.State.Running}}' $(ANDROID_CONTAINER) 2>/dev/null | grep -q true; then \
+		docker exec -u gem $(ANDROID_CONTAINER) bash -lc 'if command -v android-adb >/dev/null 2>&1; then android-adb devices -l; else adb -H host.docker.internal -P $(ANDROID_HOST_ADB_SERVER_PORT) devices -l; fi'; \
+	else \
+		echo "Container '$(ANDROID_CONTAINER)' is not running. Run 'make android-up' first."; \
+	fi
+
+android-logs: ## Tail logs for the optional Android-enabled container
+	@$(MAKE) --no-print-directory logs CONTAINER=$(ANDROID_CONTAINER)
