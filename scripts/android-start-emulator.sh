@@ -8,6 +8,8 @@ source "$SCRIPT_DIR/android-host-common.sh"
 android_require_macos
 android_resolve_host_sdk_root
 android_require_host_tools adb emulator avdmanager sdkmanager
+android_require_positive_integer ANDROID_AVD_RAM_SIZE "$ANDROID_AVD_RAM_SIZE"
+android_require_positive_integer ANDROID_AVD_VM_HEAP_SIZE "$ANDROID_AVD_VM_HEAP_SIZE"
 android_restart_host_adb_server_for_container
 
 window_mode="${ANDROID_EMULATOR_WINDOW_MODE:-headless}"
@@ -44,18 +46,19 @@ if [ -z "$serial" ]; then
 
   "$SCRIPT_DIR/android-create-avd.sh"
 
-  echo "Starting emulator '$ANDROID_AVD_NAME' on $desired_serial in $window_mode mode..."
+  echo "Starting emulator '$ANDROID_AVD_NAME' on $desired_serial in $window_mode mode with ${ANDROID_AVD_RAM_SIZE}MB RAM..."
   python3 - "$ANDROID_HOST_EMULATOR" "$log_file" \
-    "$ANDROID_AVD_NAME" "$ANDROID_EMULATOR_PORT" "$window_mode" <<'PY'
+    "$ANDROID_AVD_NAME" "$ANDROID_EMULATOR_PORT" "$window_mode" "$ANDROID_AVD_RAM_SIZE" <<'PY'
 import subprocess
 import sys
 
-emulator, log_file, avd_name, port, window_mode = sys.argv[1:6]
+emulator, log_file, avd_name, port, window_mode, ram_size = sys.argv[1:7]
 
 args = [
     emulator,
     "-avd", avd_name,
     "-port", port,
+    "-memory", ram_size,
     "-gpu", "host",
     "-skip-adb-auth",
     "-no-boot-anim",
@@ -82,6 +85,7 @@ PY
   serial="$desired_serial"
 else
   echo "Emulator '$ANDROID_AVD_NAME' is already running on $serial."
+  echo "Configured memory is ${ANDROID_AVD_RAM_SIZE}MB RAM / ${ANDROID_AVD_VM_HEAP_SIZE}MB VM heap; restart the emulator to apply changes to an already-running instance."
 fi
 
 echo "Waiting for $serial to boot..."

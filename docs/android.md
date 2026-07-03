@@ -83,7 +83,8 @@ make android-shell
 2. Verifies the macOS host prerequisites.
 3. Creates the deterministic Pixel 9 Pro AVD if needed.
 4. Starts the host emulator on fixed ports `5560/5561` with ADB auth prompts
-   disabled for this managed emulator flow.
+   disabled for this managed emulator flow. The managed AVD defaults to
+   `4096` MB RAM and a `512` MB Android VM heap.
 5. Starts the Android-enabled sandbox container.
 6. Restarts the host ADB server in listen-on-all-interfaces mode on `5037`.
 7. Installs `android-adb` and `android-emulator-adb` helpers in the container
@@ -102,6 +103,17 @@ make android-stop
 make android-clean
 make android-destroy
 ```
+
+To override the managed emulator memory for a heavier app:
+
+```bash
+make android-emulator-stop
+make android-connect ANDROID_AVD_RAM_SIZE=6144 ANDROID_AVD_VM_HEAP_SIZE=768
+```
+
+Memory changes are written to the AVD config and passed to the emulator at
+launch, so restart an already-running emulator before expecting new values to
+take effect.
 
 Inside the Android container after `make android-up`, use:
 

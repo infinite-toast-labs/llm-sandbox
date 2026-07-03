@@ -79,6 +79,7 @@ Android host prerequisites look good.
   AVD name:    $ANDROID_AVD_NAME
   Device ID:   $ANDROID_DEVICE_ID
   Image:       $ANDROID_SYSTEM_IMAGE
+  Memory:      ${ANDROID_AVD_RAM_SIZE}MB RAM / ${ANDROID_AVD_VM_HEAP_SIZE}MB VM heap
   Ports:       emulator-$ANDROID_EMULATOR_PORT / tcp:$ANDROID_EMULATOR_TCP_PORT
 EOF
 fi

@@ -4,6 +4,8 @@ set -euo pipefail
 ANDROID_AVD_NAME="${ANDROID_AVD_NAME:-llm_sandbox_pixel_9_pro_api_36_1}"
 ANDROID_DEVICE_ID="${ANDROID_DEVICE_ID:-pixel_9_pro}"
 ANDROID_SYSTEM_IMAGE="${ANDROID_SYSTEM_IMAGE:-system-images;android-36.1;google_apis_playstore;arm64-v8a}"
+ANDROID_AVD_RAM_SIZE="${ANDROID_AVD_RAM_SIZE:-4096}"
+ANDROID_AVD_VM_HEAP_SIZE="${ANDROID_AVD_VM_HEAP_SIZE:-512}"
 ANDROID_EMULATOR_PORT="${ANDROID_EMULATOR_PORT:-5560}"
 ANDROID_EMULATOR_TCP_PORT="${ANDROID_EMULATOR_TCP_PORT:-5561}"
 ANDROID_HOST_ADB_SERVER_PORT="${ANDROID_HOST_ADB_SERVER_PORT:-5037}"
@@ -186,6 +188,16 @@ android_upsert_ini() {
     printf '%s=%s\n' "$key" "$value" >"$tmp_file"
   fi
   mv "$tmp_file" "$file"
+}
+
+android_require_positive_integer() {
+  local name="$1"
+  local value="$2"
+
+  if ! [[ "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: $name must be a positive integer in MB, got '$value'." >&2
+    exit 1
+  fi
 }
 
 android_resolve_running_avd_serial() {
