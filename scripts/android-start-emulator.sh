@@ -10,6 +10,7 @@ android_resolve_host_sdk_root
 android_require_host_tools adb emulator avdmanager sdkmanager
 android_require_positive_integer ANDROID_AVD_RAM_SIZE "$ANDROID_AVD_RAM_SIZE"
 android_require_positive_integer ANDROID_AVD_VM_HEAP_SIZE "$ANDROID_AVD_VM_HEAP_SIZE"
+android_require_positive_integer ANDROID_AVD_DATA_PARTITION_SIZE "$ANDROID_AVD_DATA_PARTITION_SIZE"
 android_restart_host_adb_server_for_container
 
 window_mode="${ANDROID_EMULATOR_WINDOW_MODE:-headless}"
@@ -20,6 +21,19 @@ case "$window_mode" in
     ;;
   *)
     echo "Error: ANDROID_EMULATOR_WINDOW_MODE must be 'headless' or 'windowed'." >&2
+    exit 1
+    ;;
+esac
+
+case "$ANDROID_EMULATOR_WIPE_DATA" in
+  0|false|FALSE|no|NO|off|OFF)
+    wipe_data=0
+    ;;
+  1|true|TRUE|yes|YES|on|ON)
+    wipe_data=1
+    ;;
+  *)
+    echo "Error: ANDROID_EMULATOR_WIPE_DATA must be 0/1, true/false, yes/no, or on/off." >&2
     exit 1
     ;;
 esac
@@ -46,19 +60,20 @@ if [ -z "$serial" ]; then
 
   "$SCRIPT_DIR/android-create-avd.sh"
 
-  echo "Starting emulator '$ANDROID_AVD_NAME' on $desired_serial in $window_mode mode with ${ANDROID_AVD_RAM_SIZE}MB RAM..."
+  echo "Starting emulator '$ANDROID_AVD_NAME' on $desired_serial in $window_mode mode with ${ANDROID_AVD_RAM_SIZE}MB RAM and ${ANDROID_AVD_DATA_PARTITION_SIZE}MB data partition..."
   python3 - "$ANDROID_HOST_EMULATOR" "$log_file" \
-    "$ANDROID_AVD_NAME" "$ANDROID_EMULATOR_PORT" "$window_mode" "$ANDROID_AVD_RAM_SIZE" <<'PY'
+    "$ANDROID_AVD_NAME" "$ANDROID_EMULATOR_PORT" "$window_mode" "$ANDROID_AVD_RAM_SIZE" "$ANDROID_AVD_DATA_PARTITION_SIZE" "$wipe_data" <<'PY'
 import subprocess
 import sys
 
-emulator, log_file, avd_name, port, window_mode, ram_size = sys.argv[1:7]
+emulator, log_file, avd_name, port, window_mode, ram_size, data_partition_size, wipe_data = sys.argv[1:9]
 
 args = [
     emulator,
     "-avd", avd_name,
     "-port", port,
     "-memory", ram_size,
+    "-partition-size", data_partition_size,
     "-gpu", "host",
     "-skip-adb-auth",
     "-no-boot-anim",
@@ -69,6 +84,8 @@ args = [
 ]
 if window_mode == "headless":
     args.append("-no-window")
+if wipe_data == "1":
+    args.append("-wipe-data")
 
 with open(log_file, "ab", buffering=0) as log:
     proc = subprocess.Popen(
@@ -85,7 +102,10 @@ PY
   serial="$desired_serial"
 else
   echo "Emulator '$ANDROID_AVD_NAME' is already running on $serial."
-  echo "Configured memory is ${ANDROID_AVD_RAM_SIZE}MB RAM / ${ANDROID_AVD_VM_HEAP_SIZE}MB VM heap; restart the emulator to apply changes to an already-running instance."
+  echo "Configured memory is ${ANDROID_AVD_RAM_SIZE}MB RAM / ${ANDROID_AVD_VM_HEAP_SIZE}MB VM heap with ${ANDROID_AVD_DATA_PARTITION_SIZE}MB data partition; restart the emulator to apply changes to an already-running instance."
+  if [ "$wipe_data" -eq 1 ]; then
+    echo "Warning: ANDROID_EMULATOR_WIPE_DATA was requested, but the emulator is already running. Stop it first." >&2
+  fi
 fi
 
 echo "Waiting for $serial to boot..."
