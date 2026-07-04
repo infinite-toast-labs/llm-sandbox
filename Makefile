@@ -41,12 +41,14 @@ ANDROID_TAILSCALE_BROWSER_LOCAL_PORT ?= 18081
 ANDROID_AVD_NAME          ?= llm_sandbox_pixel_9_pro_api_36_1
 ANDROID_DEVICE_ID         ?= pixel_9_pro
 ANDROID_SYSTEM_IMAGE      ?= system-images;android-36.1;google_apis_playstore;arm64-v8a
-ANDROID_AVD_RAM_SIZE      ?= 4096
-ANDROID_AVD_VM_HEAP_SIZE  ?= 512
+ANDROID_AVD_RAM_SIZE      ?= 6144
+ANDROID_AVD_VM_HEAP_SIZE  ?= 768
+ANDROID_AVD_DATA_PARTITION_SIZE ?= 16384
 ANDROID_EMULATOR_PORT     ?= 5560
 ANDROID_EMULATOR_TCP_PORT ?= 5561
 ANDROID_HOST_ADB_SERVER_PORT ?= 5037
 ANDROID_EMULATOR_WINDOW_MODE ?= headless
+ANDROID_EMULATOR_WIPE_DATA ?= 0
 
 -include .env
 export
@@ -56,7 +58,7 @@ export
 	clipboard-install clipboard-install-android \
 	tailscale-browser tailscale-browser-android \
 	android-build android-up android-start android-stop android-restart android-clean android-destroy android-backup \
-	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start \
+	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start android-emulator-wipe-data \
 	android-emulator-start-visible android-emulator-stop android-connect android-connect-visible \
 	android-docker-rosetta \
 	android-up-visible
@@ -408,6 +410,7 @@ android-prereqs: $(ANDROID_HOST_CHECK) ## Check optional host prerequisites for 
 	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
 	ANDROID_AVD_RAM_SIZE='$(ANDROID_AVD_RAM_SIZE)' \
 	ANDROID_AVD_VM_HEAP_SIZE='$(ANDROID_AVD_VM_HEAP_SIZE)' \
+	ANDROID_AVD_DATA_PARTITION_SIZE='$(ANDROID_AVD_DATA_PARTITION_SIZE)' \
 	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
 	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
 	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
@@ -419,6 +422,7 @@ android-avd-create: android-prereqs $(ANDROID_CREATE_AVD) ## Create the determin
 	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
 	ANDROID_AVD_RAM_SIZE='$(ANDROID_AVD_RAM_SIZE)' \
 	ANDROID_AVD_VM_HEAP_SIZE='$(ANDROID_AVD_VM_HEAP_SIZE)' \
+	ANDROID_AVD_DATA_PARTITION_SIZE='$(ANDROID_AVD_DATA_PARTITION_SIZE)' \
 	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
 	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
 	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
@@ -430,15 +434,21 @@ android-emulator-start: android-avd-create $(ANDROID_START_EMULATOR) ## Start th
 	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
 	ANDROID_AVD_RAM_SIZE='$(ANDROID_AVD_RAM_SIZE)' \
 	ANDROID_AVD_VM_HEAP_SIZE='$(ANDROID_AVD_VM_HEAP_SIZE)' \
+	ANDROID_AVD_DATA_PARTITION_SIZE='$(ANDROID_AVD_DATA_PARTITION_SIZE)' \
 	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
 	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
 	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
 	ANDROID_EMULATOR_WINDOW_MODE='$(ANDROID_EMULATOR_WINDOW_MODE)' \
+	ANDROID_EMULATOR_WIPE_DATA='$(ANDROID_EMULATOR_WIPE_DATA)' \
 	'./$(ANDROID_START_EMULATOR)'
 
 android-emulator-start-visible: ## Start the optional host Android emulator with a visible window
 	@$(MAKE) --no-print-directory android-emulator-start \
 		ANDROID_EMULATOR_WINDOW_MODE=windowed
+
+android-emulator-wipe-data: android-emulator-stop ## Reset the managed emulator /data partition, then start it again
+	@$(MAKE) --no-print-directory android-emulator-start \
+		ANDROID_EMULATOR_WIPE_DATA=1
 
 android-emulator-stop: $(ANDROID_STOP_EMULATOR) ## Stop the optional host Android emulator managed by this sandbox
 	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
@@ -508,6 +518,7 @@ android-status: ## Show optional Android sandbox status and current ADB connecti
 	ANDROID_SYSTEM_IMAGE='$(ANDROID_SYSTEM_IMAGE)' \
 	ANDROID_AVD_RAM_SIZE='$(ANDROID_AVD_RAM_SIZE)' \
 	ANDROID_AVD_VM_HEAP_SIZE='$(ANDROID_AVD_VM_HEAP_SIZE)' \
+	ANDROID_AVD_DATA_PARTITION_SIZE='$(ANDROID_AVD_DATA_PARTITION_SIZE)' \
 	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
 	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
 	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \

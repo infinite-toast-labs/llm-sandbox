@@ -27,6 +27,9 @@ done
 android_require_macos
 android_resolve_host_sdk_root
 android_require_host_tools adb emulator avdmanager sdkmanager
+android_require_positive_integer ANDROID_AVD_RAM_SIZE "$ANDROID_AVD_RAM_SIZE"
+android_require_positive_integer ANDROID_AVD_VM_HEAP_SIZE "$ANDROID_AVD_VM_HEAP_SIZE"
+android_require_positive_integer ANDROID_AVD_DATA_PARTITION_SIZE "$ANDROID_AVD_DATA_PARTITION_SIZE"
 
 if [ "$(uname -m)" = "arm64" ]; then
   docker_settings="$(android_resolve_docker_settings_path || true)"
@@ -80,6 +83,7 @@ Android host prerequisites look good.
   Device ID:   $ANDROID_DEVICE_ID
   Image:       $ANDROID_SYSTEM_IMAGE
   Memory:      ${ANDROID_AVD_RAM_SIZE}MB RAM / ${ANDROID_AVD_VM_HEAP_SIZE}MB VM heap
+  Data:        ${ANDROID_AVD_DATA_PARTITION_SIZE}MB /data partition
   Ports:       emulator-$ANDROID_EMULATOR_PORT / tcp:$ANDROID_EMULATOR_TCP_PORT
 EOF
 fi

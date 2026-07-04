@@ -84,7 +84,8 @@ make android-shell
 3. Creates the deterministic Pixel 9 Pro AVD if needed.
 4. Starts the host emulator on fixed ports `5560/5561` with ADB auth prompts
    disabled for this managed emulator flow. The managed AVD defaults to
-   `4096` MB RAM and a `512` MB Android VM heap.
+   `6144` MB RAM, a `768` MB Android VM heap, and a `16384` MB `/data`
+   partition.
 5. Starts the Android-enabled sandbox container.
 6. Restarts the host ADB server in listen-on-all-interfaces mode on `5037`.
 7. Installs `android-adb` and `android-emulator-adb` helpers in the container
@@ -96,6 +97,7 @@ make android-shell
 ```bash
 make android-avd-create
 make android-emulator-start
+make android-emulator-wipe-data
 make android-connect
 make android-status
 make android-emulator-stop
@@ -104,16 +106,35 @@ make android-clean
 make android-destroy
 ```
 
-To override the managed emulator memory for a heavier app:
+To override the managed emulator memory or `/data` storage for a heavier app:
 
 ```bash
 make android-emulator-stop
-make android-connect ANDROID_AVD_RAM_SIZE=6144 ANDROID_AVD_VM_HEAP_SIZE=768
+make android-connect ANDROID_AVD_RAM_SIZE=8192 ANDROID_AVD_VM_HEAP_SIZE=1024 ANDROID_AVD_DATA_PARTITION_SIZE=24576
 ```
 
-Memory changes are written to the AVD config and passed to the emulator at
-launch, so restart an already-running emulator before expecting new values to
-take effect.
+Memory and data-partition settings are written to the AVD config and passed to
+the emulator at launch, so restart an already-running emulator before expecting
+new values to take effect.
+
+If installs fail with `INSTALL_FAILED_INSUFFICIENT_STORAGE`, check `/data`
+inside the emulator:
+
+```bash
+android-emulator-adb shell df -h /data /sdcard
+```
+
+Uninstalling an app and trimming caches may not free enough package-manager
+working space. An existing `userdata-qemu.img` also does not reliably grow just
+because the AVD config changed. To recreate the managed emulator's `/data`
+partition with the configured size:
+
+```bash
+make android-emulator-wipe-data
+```
+
+That resets apps and app data inside the emulator, but leaves the Docker
+container and volumes alone.
 
 Inside the Android container after `make android-up`, use:
 

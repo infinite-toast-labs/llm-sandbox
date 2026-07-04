@@ -10,6 +10,7 @@ android_resolve_host_sdk_root
 android_require_host_tools adb emulator avdmanager sdkmanager
 android_require_positive_integer ANDROID_AVD_RAM_SIZE "$ANDROID_AVD_RAM_SIZE"
 android_require_positive_integer ANDROID_AVD_VM_HEAP_SIZE "$ANDROID_AVD_VM_HEAP_SIZE"
+android_require_positive_integer ANDROID_AVD_DATA_PARTITION_SIZE "$ANDROID_AVD_DATA_PARTITION_SIZE"
 
 if ! "$ANDROID_HOST_AVDMANAGER" list device | grep -Eq "\"$ANDROID_DEVICE_ID\"|Name:[[:space:]]*$ANDROID_DEVICE_ID"; then
   echo "Error: device profile '$ANDROID_DEVICE_ID' is not available from avdmanager on this host." >&2
@@ -52,6 +53,7 @@ android_upsert_ini "$config_file" "hw.gpu.enabled" "yes"
 android_upsert_ini "$config_file" "hw.gpu.mode" "host"
 android_upsert_ini "$config_file" "hw.ramSize" "$ANDROID_AVD_RAM_SIZE"
 android_upsert_ini "$config_file" "vm.heapSize" "$ANDROID_AVD_VM_HEAP_SIZE"
+android_upsert_ini "$config_file" "disk.dataPartition.size" "${ANDROID_AVD_DATA_PARTITION_SIZE}M"
 android_upsert_ini "$config_file" "runtime.network.speed" "full"
 android_upsert_ini "$config_file" "runtime.network.latency" "none"
 android_upsert_ini "$config_file" "showDeviceFrame" "no"
@@ -59,4 +61,4 @@ android_upsert_ini "$config_file" "skin.dynamic" "yes"
 android_upsert_ini "$config_file" "skin.name" "pixel_9_pro"
 android_upsert_ini "$config_file" "skin.path" "$ANDROID_HOST_SDK_ROOT/skins/pixel_9_pro"
 
-echo "AVD '$ANDROID_AVD_NAME' is ready with ${ANDROID_AVD_RAM_SIZE}MB RAM and ${ANDROID_AVD_VM_HEAP_SIZE}MB VM heap."
+echo "AVD '$ANDROID_AVD_NAME' is ready with ${ANDROID_AVD_RAM_SIZE}MB RAM, ${ANDROID_AVD_VM_HEAP_SIZE}MB VM heap, and ${ANDROID_AVD_DATA_PARTITION_SIZE}MB data partition."
