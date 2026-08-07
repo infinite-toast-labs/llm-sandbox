@@ -75,7 +75,20 @@ build: Dockerfile setup-ai-tools.sh ## Build the Docker image
 # -- Lifecycle -----------------------------------------------------------------
 
 up: build ## Create/start the container and run first-time setup
-	@if docker container inspect $(CONTAINER) >/dev/null 2>&1; then \
+	@CREATE_CONTAINER=0; \
+	if docker container inspect $(CONTAINER) >/dev/null 2>&1; then \
+		CONTAINER_IMAGE=$$(docker container inspect -f '{{.Image}}' $(CONTAINER)); \
+		BUILT_IMAGE=$$(docker image inspect -f '{{.Id}}' $(IMAGE_NAME)); \
+		if [ "$$CONTAINER_IMAGE" != "$$BUILT_IMAGE" ]; then \
+			echo "Container '$(CONTAINER)' uses an outdated image. Recreating it (home volume preserved)..."; \
+			docker stop $(CONTAINER) >/dev/null 2>&1 || true; \
+			docker rm $(CONTAINER) >/dev/null; \
+			CREATE_CONTAINER=1; \
+		fi; \
+	else \
+		CREATE_CONTAINER=1; \
+	fi; \
+	if [ "$$CREATE_CONTAINER" -eq 0 ]; then \
 		STATE=$$(docker container inspect -f '{{.State.Status}}' $(CONTAINER)); \
 		if [ "$$STATE" = "running" ]; then \
 			echo "Container '$(CONTAINER)' is already running."; \
