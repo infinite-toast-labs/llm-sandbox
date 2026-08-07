@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Sandbox Location Console</title>
+    <link rel="stylesheet" href="/v1/geolocation/ui/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">LLM SANDBOX / BROWSER LAB</p>
+          <h1>Location Console</h1>
+          <p class="lede">Shape what Chromium reports—without touching your host location.</p>
+        </div>
+        <div class="status-wrap" aria-live="polite">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Connecting</span>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <article class="control-panel">
+          <div class="section-heading">
+            <div>
+              <span class="step">01</span>
+              <h2>Coordinates</h2>
+            </div>
+            <span class="scope">SANDBOX ONLY</span>
+          </div>
+
+          <form id="locationForm">
+            <label class="paste-field">
+              <span>Paste coordinate pair <em>LATITUDE, LONGITUDE</em></span>
+              <input id="coordinatePair" type="text" placeholder="35.906275, -115.076392" inputmode="decimal" autocomplete="off" spellcheck="false" />
+              <small id="pairHint">Paste directly from Google Maps</small>
+            </label>
+
+            <div class="pair-divider"><span>or tune separately</span></div>
+
+            <div class="coordinate-grid">
+              <label>
+                <span>Latitude</span>
+                <input id="latitude" name="latitude" type="number" min="-90" max="90" step="any" required placeholder="35.906275" inputmode="decimal" />
+                <small>−90 to 90</small>
+              </label>
+              <label>
+                <span>Longitude</span>
+                <input id="longitude" name="longitude" type="number" min="-180" max="180" step="any" required placeholder="−115.076392" inputmode="decimal" />
+                <small>−180 to 180</small>
+              </label>
+            </div>
+
+            <div class="preset-row">
+              <label for="preset">Quick jump</label>
+              <select id="preset">
+                <option value="">Choose a test location…</option>
+              </select>
+              <button class="button ghost compact" id="applyPreset" type="button">Load</button>
+            </div>
+
+            <details>
+              <summary><span>Advanced signal</span><span class="summary-hint">accuracy · motion · timezone</span></summary>
+              <div class="advanced-grid">
+                <label>
+                  <span>Accuracy <em>m</em></span>
+                  <input id="accuracy" type="number" min="0" step="any" value="20" />
+                </label>
+                <label>
+                  <span>Altitude <em>m</em></span>
+                  <input id="altitude" type="number" step="any" placeholder="optional" />
+                </label>
+                <label>
+                  <span>Heading <em>°</em></span>
+                  <input id="heading" type="number" min="0" max="359.999" step="any" placeholder="optional" />
+                </label>
+                <label>
+                  <span>Speed <em>m/s</em></span>
+                  <input id="speed" type="number" min="0" step="any" placeholder="optional" />
+                </label>
+                <label class="wide">
+                  <span>IANA timezone</span>
+                  <input id="timezone" type="text" placeholder="America/Chicago" autocomplete="off" />
+                </label>
+              </div>
+              <p class="field-note">Timezone is independent from coordinates. Set it when testing date or time behavior.</p>
+            </details>
+
+            <div class="actions">
+              <button class="button primary" type="submit"><span>Apply location</span><kbd>↵</kbd></button>
+              <button class="button ghost" id="resetButton" type="button">Reset to native</button>
+            </div>
+          </form>
+          <p class="feedback" id="feedback" role="status"></p>
+        </article>
+
+        <aside class="telemetry">
+          <div class="globe-card" aria-label="Coordinate position visualization">
+            <div class="grid-lines"></div>
+            <div class="equator"></div>
+            <div class="prime"></div>
+            <div class="marker" id="marker"><span></span></div>
+            <div class="axis-label north">90° N</div>
+            <div class="axis-label south">90° S</div>
+            <div class="axis-label west">180° W</div>
+            <div class="axis-label east">180° E</div>
+            <div class="coordinate-readout" id="coordinateReadout">NO OVERRIDE</div>
+          </div>
+
+          <div class="metrics">
+            <div><span>Override</span><strong id="overrideMetric">OFF</strong></div>
+            <div><span>Pages reached</span><strong id="pagesMetric">—</strong></div>
+            <div><span>Apply latency</span><strong>&lt; 1 SEC</strong></div>
+            <div><span>Persistence</span><strong>HOME VOLUME</strong></div>
+          </div>
+
+          <div class="api-card">
+            <div>
+              <span class="step">02</span>
+              <h2>Automate it</h2>
+            </div>
+            <p>The same controls are available through the sandbox API and discoverable in OpenAPI.</p>
+            <pre id="curlExample"><code>curl http://localhost:8080/v1/geolocation</code></pre>
+            <div class="api-links">
+              <a href="/v1/docs#/geolocation" target="_blank" rel="noreferrer">Swagger docs ↗</a>
+              <a href="/v1/openapi.json" target="_blank" rel="noreferrer">OpenAPI JSON ↗</a>
+              <a href="/v1/geolocation/capabilities" target="_blank" rel="noreferrer">Capabilities ↗</a>
+            </div>
+          </div>
+        </aside>
+      </section>
+    </main>
+    <script src="/v1/geolocation/ui/app.js" defer></script>
+  </body>
+</html>

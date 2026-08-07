@@ -73,5 +73,11 @@ RUN echo 'alias cdsp="claude --dangerously-skip-permissions"' >> /etc/profile &&
     fi
 
 COPY entrypoint-wrapper.sh /opt/entrypoint-wrapper.sh
-RUN chmod +x /opt/entrypoint-wrapper.sh
+COPY geolocation/geolocation.py /opt/llm-sandbox/geolocation.py
+COPY geolocation/configure-browser.py /opt/llm-sandbox/configure-browser.py
+COPY geolocation/api-extension /opt/llm-sandbox/api-extension
+COPY geolocation/supervisord.conf /opt/gem/supervisord/geolocation.conf
+COPY geolocation/python-server.conf /opt/gem/supervisord/supervisord.python_srv.conf
+RUN chmod +x /opt/entrypoint-wrapper.sh /opt/llm-sandbox/geolocation.py /opt/llm-sandbox/configure-browser.py && \
+    python3 -c 'import websockets'
 ENTRYPOINT ["/opt/entrypoint-wrapper.sh"]
