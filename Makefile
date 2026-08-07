@@ -49,6 +49,13 @@ ANDROID_EMULATOR_TCP_PORT ?= 5561
 ANDROID_HOST_ADB_SERVER_PORT ?= 5037
 ANDROID_EMULATOR_WINDOW_MODE ?= headless
 ANDROID_EMULATOR_WIPE_DATA ?= 0
+GEOLOCATION_SCRIPT          := geolocation/geolocation.py
+GEOLOCATION_BROWSER_CONFIG  := geolocation/configure-browser.py
+GEOLOCATION_SUPERVISOR_CONF := geolocation/supervisord.conf
+GEOLOCATION_PYTHON_CONF     := geolocation/python-server.conf
+GEOLOCATION_API_EXTENSION   := geolocation/api-extension
+GEOLOCATION_CONTAINER_DIR   := /opt/llm-sandbox
+GEOLOCATION_ACCURACY        ?= 20
 
 -include .env
 export
@@ -61,7 +68,8 @@ export
 	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start android-emulator-wipe-data \
 	android-emulator-start-visible android-emulator-stop android-connect android-connect-visible \
 	android-docker-rosetta \
-	android-up-visible
+	android-up-visible \
+	location-install location location-show location-clear
 
 help: ## Show available targets
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -133,6 +141,7 @@ up: build ## Create/start the container and run first-time setup
 	@docker cp setup-ai-tools.sh $(CONTAINER):/opt/setup-ai-tools.sh
 	@docker exec -u root $(CONTAINER) chmod +x /opt/setup-ai-tools.sh
 	@docker exec $(CONTAINER) /opt/setup-ai-tools.sh
+	@$(MAKE) --no-print-directory location-install
 	@echo ""
 	@echo "Dashboard: http://localhost:$(HOST_PORT)"
 	@echo "Shell:     $(SHELL_HINT)"
@@ -396,6 +405,83 @@ status: ## Show container and volume status
 
 logs: ## Tail container logs
 	@docker logs -f $(CONTAINER) 2>/dev/null || echo "Container '$(CONTAINER)' not found."
+
+# -- Browser geolocation -------------------------------------------------------
+
+location-install: $(GEOLOCATION_SCRIPT) $(GEOLOCATION_BROWSER_CONFIG) $(GEOLOCATION_SUPERVISOR_CONF) $(GEOLOCATION_PYTHON_CONF) ## Install/update the live browser location service
+	@set -euo pipefail; \
+	if ! docker container inspect -f '{{.State.Running}}' $(CONTAINER) 2>/dev/null | grep -q true; then \
+		echo "Container '$(CONTAINER)' is not running. Run 'make up' first."; \
+		exit 1; \
+	fi; \
+	docker cp $(GEOLOCATION_SCRIPT) $(CONTAINER):/tmp/geolocation.py.new; \
+	docker cp $(GEOLOCATION_BROWSER_CONFIG) $(CONTAINER):/tmp/configure-browser.py.new; \
+	docker cp $(GEOLOCATION_SUPERVISOR_CONF) $(CONTAINER):/tmp/geolocation-supervisor.conf.new; \
+	docker cp $(GEOLOCATION_PYTHON_CONF) $(CONTAINER):/tmp/geolocation-python-server.conf.new; \
+	docker cp $(GEOLOCATION_API_EXTENSION) $(CONTAINER):/tmp/geolocation-api-extension.new; \
+	docker exec -u root $(CONTAINER) bash -lc '\
+		set -euo pipefail; \
+		changed=0; \
+		api_changed=0; \
+		install -d -m 0755 $(GEOLOCATION_CONTAINER_DIR); \
+		if ! cmp -s /tmp/geolocation.py.new $(GEOLOCATION_CONTAINER_DIR)/geolocation.py; then \
+			install -m 0755 /tmp/geolocation.py.new $(GEOLOCATION_CONTAINER_DIR)/geolocation.py; changed=1; \
+		fi; \
+		if ! cmp -s /tmp/configure-browser.py.new $(GEOLOCATION_CONTAINER_DIR)/configure-browser.py; then \
+			install -m 0755 /tmp/configure-browser.py.new $(GEOLOCATION_CONTAINER_DIR)/configure-browser.py; \
+		fi; \
+		if ! cmp -s /tmp/geolocation-supervisor.conf.new /opt/gem/supervisord/geolocation.conf; then \
+			install -m 0644 /tmp/geolocation-supervisor.conf.new /opt/gem/supervisord/geolocation.conf; changed=1; \
+		fi; \
+		if ! cmp -s /tmp/geolocation-python-server.conf.new /opt/gem/supervisord/supervisord.python_srv.conf; then \
+			install -m 0644 /tmp/geolocation-python-server.conf.new /opt/gem/supervisord/supervisord.python_srv.conf; api_changed=1; \
+		fi; \
+		install -d -m 0755 $(GEOLOCATION_CONTAINER_DIR)/api-extension/ui; \
+		for file in sitecustomize.py sandbox_geolocation_api.py ui/index.html ui/styles.css ui/app.js; do \
+			if ! cmp -s "/tmp/geolocation-api-extension.new/$$file" "$(GEOLOCATION_CONTAINER_DIR)/api-extension/$$file"; then \
+				install -m 0644 "/tmp/geolocation-api-extension.new/$$file" "$(GEOLOCATION_CONTAINER_DIR)/api-extension/$$file"; \
+				api_changed=1; \
+			fi; \
+		done; \
+		rm -f /tmp/geolocation.py.new /tmp/configure-browser.py.new /tmp/geolocation-supervisor.conf.new /tmp/geolocation-python-server.conf.new; \
+		rm -rf /tmp/geolocation-api-extension.new; \
+		if ! python3 $(GEOLOCATION_CONTAINER_DIR)/configure-browser.py check; then \
+			echo "Applying one-time sandbox Chromium geolocation permission migration..."; \
+			supervisorctl stop browser >/dev/null; \
+			python3 $(GEOLOCATION_CONTAINER_DIR)/configure-browser.py apply; \
+			supervisorctl start browser >/dev/null; \
+		fi; \
+		supervisorctl reread >/dev/null; \
+		supervisorctl update >/dev/null; \
+		if [ "$$changed" = 1 ] && supervisorctl status sandbox-geolocation 2>/dev/null | grep -q RUNNING; then \
+			supervisorctl restart sandbox-geolocation >/dev/null; \
+		fi; \
+		if [ "$$api_changed" = 1 ] && supervisorctl status python-server 2>/dev/null | grep -Eq "RUNNING|STARTING"; then \
+			supervisorctl restart python-server >/dev/null; \
+		fi; \
+		supervisorctl status sandbox-geolocation python-server'
+
+location: location-install ## Set browser location: COORDS="LAT,LNG" or LAT=... LNG=...
+	@set -euo pipefail; \
+	if [ -n "$(strip $(COORDS))" ]; then \
+		docker exec -u $(SHELL_USER) $(CONTAINER) python3 $(GEOLOCATION_CONTAINER_DIR)/geolocation.py \
+			set "$(COORDS)" "$(GEOLOCATION_ACCURACY)"; \
+	elif [ -n "$(strip $(LAT))" ] && [ -n "$(strip $(LNG))" ]; then \
+		docker exec -u $(SHELL_USER) $(CONTAINER) python3 $(GEOLOCATION_CONTAINER_DIR)/geolocation.py \
+			set "$(LAT)" "$(LNG)" "$(GEOLOCATION_ACCURACY)"; \
+	else \
+		echo 'Usage: make location COORDS="35.906275, -115.076392"'; \
+		echo '   or: make location LAT=35.906275 LNG=-115.076392'; \
+		exit 2; \
+	fi
+	@echo "The sandbox browser will use the new location within about one second."
+
+location-show: location-install ## Show the current browser location override
+	@docker exec -u $(SHELL_USER) $(CONTAINER) python3 $(GEOLOCATION_CONTAINER_DIR)/geolocation.py show
+
+location-clear: location-install ## Disable the override and restore native browser location behavior
+	@docker exec -u $(SHELL_USER) $(CONTAINER) python3 $(GEOLOCATION_CONTAINER_DIR)/geolocation.py clear
+	@echo "The sandbox browser will clear the override within about one second."
 
 clipboard-install: $(CLIPBOARD_INSTALL_SCRIPT) ## Install the clipboard bridge into the default sandbox
 	@DEFAULT_CONTAINER='$(CONTAINER)' \

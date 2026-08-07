@@ -30,4 +30,8 @@ settings_path.write_text(json.dumps(settings, indent=2, sort_keys=True) + "\n", 
 PY
 chown -R "$USER_UID:$USER_GID" "$SETTINGS_DIR"
 
+# The upstream sandbox profile blocks geolocation by default. This image keeps
+# permission scoped to its own Chromium profile so CDP location overrides work.
+python3 /opt/llm-sandbox/configure-browser.py apply
+
 exec /opt/gem/run.sh "$@"
