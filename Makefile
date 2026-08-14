@@ -56,6 +56,8 @@ GEOLOCATION_PYTHON_CONF     := geolocation/python-server.conf
 GEOLOCATION_API_EXTENSION   := geolocation/api-extension
 GEOLOCATION_CONTAINER_DIR   := /opt/llm-sandbox
 GEOLOCATION_ACCURACY        ?= 20
+JOYSTICK_BASE_DIR           ?= $(abspath ../joystick-base)
+EMULATOR_WEB_URL            ?= http://localhost:$(HOST_PORT)/emulator/
 
 -include .env
 export
@@ -69,7 +71,8 @@ export
 	android-emulator-start-visible android-emulator-stop android-connect android-connect-visible \
 	android-docker-rosetta \
 	android-up-visible \
-	location-install location location-show location-clear
+	location-install location location-show location-clear \
+	emulator-web-up emulator-web-stop emulator-web-restart emulator-web-status emulator-web-logs emulator-web-verify
 
 help: ## Show available targets
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -482,6 +485,36 @@ location-show: location-install ## Show the current browser location override
 location-clear: location-install ## Disable the override and restore native browser location behavior
 	@docker exec -u $(SHELL_USER) $(CONTAINER) python3 $(GEOLOCATION_CONTAINER_DIR)/geolocation.py clear
 	@echo "The sandbox browser will clear the override within about one second."
+
+# -- Human Android Emulator Web UI --------------------------------------------
+
+emulator-web-up: up ## Start joystick-base and publish its touch-capable UI through this sandbox
+	@test -f '$(JOYSTICK_BASE_DIR)/Makefile' || { echo "joystick-base not found at $(JOYSTICK_BASE_DIR)"; exit 1; }
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-start
+	@echo "Android emulator: $(EMULATOR_WEB_URL)"
+
+emulator-web-stop: ## Stop the joystick-base web gateway without stopping Android
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-stop
+
+emulator-web-restart: ## Restart the joystick-base web gateway and verify the sandbox route
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-restart
+	@curl -fsS --max-time 10 '$(EMULATOR_WEB_URL)healthz'
+	@echo
+
+emulator-web-status: ## Show host gateway and sandbox-route health
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-status
+	@echo ""
+	@echo "=== Sandbox route ==="
+	@curl -fsS --max-time 10 '$(EMULATOR_WEB_URL)healthz'
+	@echo
+
+emulator-web-logs: ## Show recent joystick-base browser-stream gateway logs
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-logs
+
+emulator-web-verify: ## Verify installed host assets, native gRPC, and the public sandbox route
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-verify
+	@curl -fsS --max-time 10 '$(EMULATOR_WEB_URL)healthz'
+	@echo
 
 clipboard-install: $(CLIPBOARD_INSTALL_SCRIPT) ## Install the clipboard bridge into the default sandbox
 	@DEFAULT_CONTAINER='$(CONTAINER)' \
