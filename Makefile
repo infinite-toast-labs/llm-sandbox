@@ -4,6 +4,7 @@ IMAGE_NAME     ?= llm-sandbox
 CONTAINER      ?= llm-sandbox
 VOLUME         ?= llm-sandbox-home
 HOST_PORT      ?= 8080
+HOST_BIND      ?= 127.0.0.1
 CONTAINER_PORT := 8080
 SHARED_DIR     := $(CURDIR)/sbx-shared
 SHELL_USER     := gem
@@ -115,8 +116,8 @@ up: build ## Create/start the container and run first-time setup
 		if docker run -d $(DOCKER_RUN_ARGS) \
 			--name $(CONTAINER) \
 			--hostname $(CONTAINER) \
-			-p $(HOST_PORT):$(CONTAINER_PORT) \
-			-p $(STREAMLIT_HOST_PORT):8501 \
+			-p $(HOST_BIND):$(HOST_PORT):$(CONTAINER_PORT) \
+			-p $(HOST_BIND):$(STREAMLIT_HOST_PORT):8501 \
 			--cap-add NET_ADMIN \
 			--security-opt seccomp=unconfined \
 			--device /dev/net/tun \
@@ -129,8 +130,8 @@ up: build ## Create/start the container and run first-time setup
 			docker run -d $(DOCKER_RUN_ARGS) \
 				--name $(CONTAINER) \
 				--hostname $(CONTAINER) \
-				-p $(HOST_PORT):$(CONTAINER_PORT) \
-				-p $(STREAMLIT_HOST_PORT):8501 \
+				-p $(HOST_BIND):$(HOST_PORT):$(CONTAINER_PORT) \
+				-p $(HOST_BIND):$(STREAMLIT_HOST_PORT):8501 \
 				--cap-add NET_ADMIN \
 				--security-opt seccomp=unconfined \
 				-v $(VOLUME):/home/gem \
@@ -392,7 +393,7 @@ status: ## Show container and volume status
 		docker container inspect -f \
 			'Name:    {{.Name}}\nState:   {{.State.Status}}\nStarted: {{.State.StartedAt}}\nImage:   {{.Config.Image}}' \
 			$(CONTAINER); \
-		echo "Ports:   $(HOST_PORT)->$(CONTAINER_PORT), $(STREAMLIT_HOST_PORT)->8501"; \
+		echo "Ports:   $(HOST_BIND):$(HOST_PORT)->$(CONTAINER_PORT), $(HOST_BIND):$(STREAMLIT_HOST_PORT)->8501"; \
 	else \
 		echo "Container '$(CONTAINER)' does not exist."; \
 	fi

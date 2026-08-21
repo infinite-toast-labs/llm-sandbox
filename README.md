@@ -23,6 +23,11 @@ the sandbox's HTTPS/Tailscale address with `/emulator/` when connecting from a
 phone; mobile browsers restrict several fullscreen and media capabilities on
 plain HTTP origins other than localhost.
 
+The **More** menu provides remote keyboard/clipboard input and a confirmed
+**Reboot Android** action. Reboot is executed against the fixed emulator from
+the macOS host, preserves apps and sign-ins, and reconnects the page only after
+Android can render a fresh frame.
+
 For a near-native presentation on the target Pixel 9 Pro, open the HTTPS route
 in Chrome, expand **More**, choose **Install app**, and launch **Joystick Base**
 from the home screen. The installed PWA runs without Chrome's address and tab
@@ -47,9 +52,11 @@ The emulator's native gRPC endpoint uses its per-process bearer token; that
 token never reaches the browser or the nginx container.
 
 This route has the same network trust boundary as the existing sandbox VNC UI:
-anyone who can reach the sandbox ingress can operate the Android phone. Do not
-publish port 8080 directly to an untrusted network. Prefer Tailscale HTTPS or put
-an authenticated reverse proxy in front of the entire sandbox.
+anyone who can reach the sandbox ingress can operate the Android phone. New
+containers publish the host ports on `127.0.0.1` by default while Tailscale
+terminates inside the container; do not override `HOST_BIND` onto an untrusted
+network. Prefer Tailscale HTTPS or put an authenticated reverse proxy in front
+of the entire sandbox.
 
 ## Browser location override
 
