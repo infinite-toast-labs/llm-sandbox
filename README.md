@@ -51,6 +51,12 @@ sandbox nginx service, while the host gateway remains bound to macOS loopback.
 The emulator's native gRPC endpoint uses its per-process bearer token; that
 token never reaches the browser or the nginx container.
 
+Both host emulator launchers pin QEMU DNS to `1.1.1.1,8.8.8.8` so changing the
+Mac's Wi-Fi, VPN, or resolver does not strand Android on a stale launch-time DNS
+mapping. The optional `make android-up` AVD accepts a different numeric list via
+`ANDROID_EMULATOR_DNS_SERVERS`; its launcher automatically performs the required
+data-preserving emulator-process relaunch when the active setting differs.
+
 This route has the same network trust boundary as the existing sandbox VNC UI:
 anyone who can reach the sandbox ingress can operate the Android phone. New
 containers publish the host ports on `127.0.0.1` by default while Tailscale

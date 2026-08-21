@@ -9,6 +9,7 @@ ANDROID_AVD_VM_HEAP_SIZE="${ANDROID_AVD_VM_HEAP_SIZE:-768}"
 ANDROID_AVD_DATA_PARTITION_SIZE="${ANDROID_AVD_DATA_PARTITION_SIZE:-16384}"
 ANDROID_EMULATOR_PORT="${ANDROID_EMULATOR_PORT:-5560}"
 ANDROID_EMULATOR_TCP_PORT="${ANDROID_EMULATOR_TCP_PORT:-5561}"
+ANDROID_EMULATOR_DNS_SERVERS="${ANDROID_EMULATOR_DNS_SERVERS:-1.1.1.1,8.8.8.8}"
 ANDROID_HOST_ADB_SERVER_PORT="${ANDROID_HOST_ADB_SERVER_PORT:-5037}"
 ANDROID_EMULATOR_WIPE_DATA="${ANDROID_EMULATOR_WIPE_DATA:-0}"
 
@@ -202,6 +203,41 @@ android_require_positive_integer() {
   fi
 }
 
+android_is_ipv4_address() {
+  local address="$1"
+  local octet
+  local -a octets
+
+  [[ "$address" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  IFS='.' read -r -a octets <<<"$address"
+  (( ${#octets[@]} == 4 )) || return 1
+  for octet in "${octets[@]}"; do
+    (( 10#$octet <= 255 )) || return 1
+  done
+}
+
+android_validate_dns_servers() {
+  local dns_servers="${1:-$ANDROID_EMULATOR_DNS_SERVERS}"
+  local server
+  local -a servers
+
+  [[ -n "$dns_servers" && "$dns_servers" != ,* && "$dns_servers" != *, && "$dns_servers" != *,,* ]] || {
+    echo "Error: ANDROID_EMULATOR_DNS_SERVERS must contain one to four comma-separated IPv4 addresses." >&2
+    return 1
+  }
+  IFS=',' read -r -a servers <<<"$dns_servers"
+  (( ${#servers[@]} >= 1 && ${#servers[@]} <= 4 )) || {
+    echo "Error: ANDROID_EMULATOR_DNS_SERVERS must contain one to four comma-separated IPv4 addresses." >&2
+    return 1
+  }
+  for server in "${servers[@]}"; do
+    android_is_ipv4_address "$server" || {
+      echo "Error: ANDROID_EMULATOR_DNS_SERVERS contains an invalid IPv4 address: '$server'." >&2
+      return 1
+    }
+  done
+}
+
 android_resolve_running_avd_serial() {
   local serial state avd_name
 
@@ -225,6 +261,12 @@ android_resolve_running_avd_serial() {
   return 1
 }
 
+android_adb_serial_is_listed() {
+  local desired_serial="$1"
+
+  "$ANDROID_HOST_ADB" devices | awk 'NR > 1 {print $1}' | grep -Fxq "$desired_serial"
+}
+
 android_resolve_avd_pid() {
   ps -ax -o pid= -o command= | awk -v avd="$ANDROID_AVD_NAME" -v port="$ANDROID_EMULATOR_PORT" '
     $0 ~ ("-avd " avd) &&
@@ -234,6 +276,23 @@ android_resolve_avd_pid() {
       exit
     }
   '
+}
+
+android_resolve_active_dns_servers() {
+  local pid="${1:-}"
+  local process_command
+
+  if [ -z "$pid" ]; then
+    pid="$(android_resolve_avd_pid || true)"
+  fi
+  [ -n "$pid" ] || return 1
+
+  process_command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  if [[ "$process_command" =~ [[:space:]]-dns-server[[:space:]]+([^[:space:]]+) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
 }
 
 android_restart_host_adb_server_for_container() {
