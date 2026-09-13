@@ -1,5 +1,19 @@
 # llm sandbox
 
+## Start the sandbox
+
+Run `make start` (or `make up`). Before building, it ensures Docker Desktop is
+running using its saved settings and waits for the daemon to become ready. On
+Apple Silicon it checks the running VM for Rosetta first, avoiding macOS
+settings-file permission prompts when Rosetta is already active. If configuration
+is needed, it enables Apple Virtualization Framework and Rosetta, restarting
+Docker only if those settings need changing. Repeated starts leave an already
+configured, running Docker Desktop alone.
+
+Use `make docker-rosetta` to run just this prerequisite; the existing
+`make android-docker-rosetta` command remains an alias. On non-macOS hosts,
+the prerequisite checks that the Docker daemon is already available.
+
 ## Android Pixel 9 Pro in the browser
 
 The sibling `joystick-base` Android emulator is available as a direct,
