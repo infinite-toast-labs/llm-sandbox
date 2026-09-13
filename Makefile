@@ -71,7 +71,7 @@ export
 	android-build android-up android-start android-stop android-restart android-clean android-destroy android-backup \
 	android-shell android-status android-logs android-prereqs android-avd-create android-emulator-start android-emulator-wipe-data \
 	android-emulator-start-visible android-emulator-stop android-connect android-connect-visible \
-	android-docker-rosetta \
+	docker-rosetta android-docker-rosetta \
 	android-up-visible \
 	location-install location location-show location-clear \
 	emulator-web-up emulator-web-stop emulator-web-restart emulator-web-status emulator-web-logs emulator-web-verify
@@ -82,7 +82,10 @@ help: ## Show available targets
 
 # -- Build ---------------------------------------------------------------------
 
-build: Dockerfile setup-ai-tools.sh ## Build the Docker image
+docker-rosetta: $(ANDROID_DOCKER_ROSETTA) ## Ensure Docker is ready, enabling Rosetta on Apple Silicon
+	@'./$(ANDROID_DOCKER_ROSETTA)'
+
+build: Dockerfile setup-ai-tools.sh | docker-rosetta ## Build the Docker image (starts Docker if needed)
 	docker build $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME) .
 
 # -- Lifecycle -----------------------------------------------------------------
@@ -535,8 +538,7 @@ android-build: ## Build the optional Android-enabled sandbox image
 		IMAGE_NAME=$(ANDROID_IMAGE_NAME) \
 		DOCKER_BUILD_ARGS='--platform=linux/amd64 --build-arg ENABLE_ANDROID=1'
 
-android-docker-rosetta: $(ANDROID_DOCKER_ROSETTA) ## Restart Docker Desktop with Apple Virtualization Framework + Rosetta enabled
-	@'./$(ANDROID_DOCKER_ROSETTA)'
+android-docker-rosetta: docker-rosetta ## Alias for 'docker-rosetta'
 
 android-prereqs: $(ANDROID_HOST_CHECK) ## Check optional host prerequisites for Android support
 	@ANDROID_AVD_NAME='$(ANDROID_AVD_NAME)' \
