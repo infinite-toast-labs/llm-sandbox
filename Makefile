@@ -4,6 +4,7 @@ IMAGE_NAME     ?= llm-sandbox
 CONTAINER      ?= llm-sandbox
 VOLUME         ?= llm-sandbox-home
 HOST_PORT      ?= 8080
+HOST_BIND      ?= 127.0.0.1
 CONTAINER_PORT := 8080
 SHARED_DIR     := $(CURDIR)/sbx-shared
 SHELL_USER     := gem
@@ -46,6 +47,7 @@ ANDROID_AVD_VM_HEAP_SIZE  ?= 768
 ANDROID_AVD_DATA_PARTITION_SIZE ?= 16384
 ANDROID_EMULATOR_PORT     ?= 5560
 ANDROID_EMULATOR_TCP_PORT ?= 5561
+ANDROID_EMULATOR_DNS_SERVERS ?= 1.1.1.1,8.8.8.8
 ANDROID_HOST_ADB_SERVER_PORT ?= 5037
 ANDROID_EMULATOR_WINDOW_MODE ?= headless
 ANDROID_EMULATOR_WIPE_DATA ?= 0
@@ -56,6 +58,8 @@ GEOLOCATION_PYTHON_CONF     := geolocation/python-server.conf
 GEOLOCATION_API_EXTENSION   := geolocation/api-extension
 GEOLOCATION_CONTAINER_DIR   := /opt/llm-sandbox
 GEOLOCATION_ACCURACY        ?= 20
+JOYSTICK_BASE_DIR           ?= $(abspath ../joystick-base)
+EMULATOR_WEB_URL            ?= http://localhost:$(HOST_PORT)/emulator/
 
 -include .env
 export
@@ -69,7 +73,8 @@ export
 	android-emulator-start-visible android-emulator-stop android-connect android-connect-visible \
 	android-docker-rosetta \
 	android-up-visible \
-	location-install location location-show location-clear
+	location-install location location-show location-clear \
+	emulator-web-up emulator-web-stop emulator-web-restart emulator-web-status emulator-web-logs emulator-web-verify
 
 help: ## Show available targets
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -112,8 +117,8 @@ up: build ## Create/start the container and run first-time setup
 		if docker run -d $(DOCKER_RUN_ARGS) \
 			--name $(CONTAINER) \
 			--hostname $(CONTAINER) \
-			-p $(HOST_PORT):$(CONTAINER_PORT) \
-			-p $(STREAMLIT_HOST_PORT):8501 \
+			-p $(HOST_BIND):$(HOST_PORT):$(CONTAINER_PORT) \
+			-p $(HOST_BIND):$(STREAMLIT_HOST_PORT):8501 \
 			--cap-add NET_ADMIN \
 			--security-opt seccomp=unconfined \
 			--device /dev/net/tun \
@@ -126,8 +131,8 @@ up: build ## Create/start the container and run first-time setup
 			docker run -d $(DOCKER_RUN_ARGS) \
 				--name $(CONTAINER) \
 				--hostname $(CONTAINER) \
-				-p $(HOST_PORT):$(CONTAINER_PORT) \
-				-p $(STREAMLIT_HOST_PORT):8501 \
+				-p $(HOST_BIND):$(HOST_PORT):$(CONTAINER_PORT) \
+				-p $(HOST_BIND):$(STREAMLIT_HOST_PORT):8501 \
 				--cap-add NET_ADMIN \
 				--security-opt seccomp=unconfined \
 				-v $(VOLUME):/home/gem \
@@ -389,7 +394,7 @@ status: ## Show container and volume status
 		docker container inspect -f \
 			'Name:    {{.Name}}\nState:   {{.State.Status}}\nStarted: {{.State.StartedAt}}\nImage:   {{.Config.Image}}' \
 			$(CONTAINER); \
-		echo "Ports:   $(HOST_PORT)->$(CONTAINER_PORT), $(STREAMLIT_HOST_PORT)->8501"; \
+		echo "Ports:   $(HOST_BIND):$(HOST_PORT)->$(CONTAINER_PORT), $(HOST_BIND):$(STREAMLIT_HOST_PORT)->8501"; \
 	else \
 		echo "Container '$(CONTAINER)' does not exist."; \
 	fi
@@ -483,6 +488,36 @@ location-clear: location-install ## Disable the override and restore native brow
 	@docker exec -u $(SHELL_USER) $(CONTAINER) python3 $(GEOLOCATION_CONTAINER_DIR)/geolocation.py clear
 	@echo "The sandbox browser will clear the override within about one second."
 
+# -- Human Android Emulator Web UI --------------------------------------------
+
+emulator-web-up: up ## Start joystick-base and publish its touch-capable UI through this sandbox
+	@test -f '$(JOYSTICK_BASE_DIR)/Makefile' || { echo "joystick-base not found at $(JOYSTICK_BASE_DIR)"; exit 1; }
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-start
+	@echo "Android emulator: $(EMULATOR_WEB_URL)"
+
+emulator-web-stop: ## Stop the joystick-base web gateway without stopping Android
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-stop
+
+emulator-web-restart: ## Restart the joystick-base web gateway and verify the sandbox route
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-restart
+	@curl -fsS --max-time 10 '$(EMULATOR_WEB_URL)healthz'
+	@echo
+
+emulator-web-status: ## Show host gateway and sandbox-route health
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-status
+	@echo ""
+	@echo "=== Sandbox route ==="
+	@curl -fsS --max-time 10 '$(EMULATOR_WEB_URL)healthz'
+	@echo
+
+emulator-web-logs: ## Show recent joystick-base browser-stream gateway logs
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-logs
+
+emulator-web-verify: ## Verify installed host assets, native gRPC, and the public sandbox route
+	@$(MAKE) --no-print-directory -C '$(JOYSTICK_BASE_DIR)' web-verify
+	@curl -fsS --max-time 10 '$(EMULATOR_WEB_URL)healthz'
+	@echo
+
 clipboard-install: $(CLIPBOARD_INSTALL_SCRIPT) ## Install the clipboard bridge into the default sandbox
 	@DEFAULT_CONTAINER='$(CONTAINER)' \
 	DASHBOARD_URL='http://localhost:$(HOST_PORT)' \
@@ -512,6 +547,7 @@ android-prereqs: $(ANDROID_HOST_CHECK) ## Check optional host prerequisites for 
 	ANDROID_AVD_DATA_PARTITION_SIZE='$(ANDROID_AVD_DATA_PARTITION_SIZE)' \
 	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
 	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_EMULATOR_DNS_SERVERS='$(ANDROID_EMULATOR_DNS_SERVERS)' \
 	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
 	'./$(ANDROID_HOST_CHECK)'
 
@@ -536,6 +572,7 @@ android-emulator-start: android-avd-create $(ANDROID_START_EMULATOR) ## Start th
 	ANDROID_AVD_DATA_PARTITION_SIZE='$(ANDROID_AVD_DATA_PARTITION_SIZE)' \
 	ANDROID_EMULATOR_PORT='$(ANDROID_EMULATOR_PORT)' \
 	ANDROID_EMULATOR_TCP_PORT='$(ANDROID_EMULATOR_TCP_PORT)' \
+	ANDROID_EMULATOR_DNS_SERVERS='$(ANDROID_EMULATOR_DNS_SERVERS)' \
 	ANDROID_HOST_ADB_SERVER_PORT='$(ANDROID_HOST_ADB_SERVER_PORT)' \
 	ANDROID_EMULATOR_WINDOW_MODE='$(ANDROID_EMULATOR_WINDOW_MODE)' \
 	ANDROID_EMULATOR_WIPE_DATA='$(ANDROID_EMULATOR_WIPE_DATA)' \

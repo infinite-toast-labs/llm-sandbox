@@ -1,5 +1,69 @@
 # llm sandbox
 
+## Android Pixel 9 Pro in the browser
+
+The sibling `joystick-base` Android emulator is available as a direct,
+human-facing browser UI at:
+
+```text
+http://localhost:8080/emulator/
+```
+
+Start the sandbox, Android phone, authenticated emulator gRPC endpoint, and
+browser stream gateway together with:
+
+```bash
+make emulator-web-up
+```
+
+The page reconnects automatically and provides responsive Back, Home, Recents,
+Power, and volume controls. Its display accepts keyboard/mouse input and native
+browser pointer events, including concurrent contacts on phones and tablets. Use
+the sandbox's HTTPS/Tailscale address with `/emulator/` when connecting from a
+phone; mobile browsers restrict several fullscreen and media capabilities on
+plain HTTP origins other than localhost.
+
+The **More** menu provides remote keyboard/clipboard input and a confirmed
+**Reboot Android** action. Reboot is executed against the fixed emulator from
+the macOS host, preserves apps and sign-ins, and reconnects the page only after
+Android can render a fresh frame.
+
+For a near-native presentation on the target Pixel 9 Pro, open the HTTPS route
+in Chrome, expand **More**, choose **Install app**, and launch **Joystick Base**
+from the home screen. The installed PWA runs without Chrome's address and tab
+bars, while the existing lower Back/Home/Recents controls remain visible. The
+emulator uses the same 20:9, 1280 × 2856 display geometry as the physical phone,
+eliminating the large aspect-ratio bars caused by the former tablet profile.
+
+Useful lifecycle and diagnostic commands are:
+
+```bash
+make emulator-web-status
+make emulator-web-verify
+make emulator-web-logs
+make emulator-web-restart
+make emulator-web-stop       # leaves Android running
+```
+
+`JOYSTICK_BASE_DIR` defaults to `../joystick-base` and can be overridden for a
+different checkout. The browser path is reverse-proxied through the existing
+sandbox nginx service, while the host gateway remains bound to macOS loopback.
+The emulator's native gRPC endpoint uses its per-process bearer token; that
+token never reaches the browser or the nginx container.
+
+Both host emulator launchers pin QEMU DNS to `1.1.1.1,8.8.8.8` so changing the
+Mac's Wi-Fi, VPN, or resolver does not strand Android on a stale launch-time DNS
+mapping. The optional `make android-up` AVD accepts a different numeric list via
+`ANDROID_EMULATOR_DNS_SERVERS`; its launcher automatically performs the required
+data-preserving emulator-process relaunch when the active setting differs.
+
+This route has the same network trust boundary as the existing sandbox VNC UI:
+anyone who can reach the sandbox ingress can operate the Android phone. New
+containers publish the host ports on `127.0.0.1` by default while Tailscale
+terminates inside the container; do not override `HOST_BIND` onto an untrusted
+network. Prefer Tailscale HTTPS or put an authenticated reverse proxy in front
+of the entire sandbox.
+
 ## Browser location override
 
 The Chromium instance visible through the sandbox VNC page supports a
