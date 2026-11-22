@@ -24,6 +24,24 @@ This constitution applies to:
 
 ## 2. Mandatory Pre-Flight Reconciliation (Run BEFORE Any Edit)
 
+### GitHub Account Alignment (`.gitconfig` Is Source of Truth)
+
+- Treat `.gitconfig` (including its `includeIf` directory rules such as `.gitconfig-toast` and `.gitconfig-krovzn`) as the **single source of truth** for which GitHub account owns the current repository.
+- Before running `git fetch`, `git push`, or any `gh` command:
+  1. Resolve the authoritative account from `.gitconfig` inside the repo directory:
+     ```bash
+     git config --show-origin user.name
+     ```
+     (For brand-new project roots such as `~/projects/itl/<app>`, if `~/.gitconfig` does not yet have a matching `includeIf` rule for `~/projects/itl/**`, follow the matching profile in `~/.gitconfig`—for example `.gitconfig-toast` → `infinite-toast-labs` for ITL repos—and configure `includeIf` or local repo identity so `.gitconfig` resolves accurately.)
+  2. Check the active `gh` account with `gh auth status`.
+  3. **You have explicit permission to switch `gh` to the matching account** whenever the active account differs from `.gitconfig`'s resolved `user.name`:
+     ```bash
+     gh auth switch --user "<resolved-user.name>"
+     ```
+  4. Never run `git push`, `gh repo create`, or other GitHub operations under a mismatched account. If the `.gitconfig` account is not logged into `gh`, stop and ask the user to authenticate it.
+
+### Repository State Audit
+
 Before writing code or switching branches in any existing repository, audit the full git state:
 
 ```bash
@@ -75,7 +93,7 @@ Follow this exact sequence for every deliverable:
   - Never ask the user to copy/paste raw shell sequences when a `make` target can exist; update `Makefile` first, then run `make <target>`.
 - **Day-zero repository bootstrap (every new project):**
   1. `git init -b main`
-  2. Verify git author identity is configured (`infinite-toast-labs` for ITL repos); configure local repo `user.name` / `user.email` if `includeIf` does not match the path.
+  2. Verify git author identity from `.gitconfig` (for ITL repos under `~/projects/itl/`, confirm `.gitconfig` resolves `infinite-toast-labs` via `.gitconfig-toast` or add/set the matching identity) and switch `gh` to that account per Section 2.
   3. Add a stack-appropriate `.gitignore` (never commit `.gradle/`, `build/`, `app/build/`, `node_modules/`, `dist/`, `artifacts/`, secrets, or keystores).
   4. Create the root `Makefile`.
   5. Make an initial commit on `main`.
